@@ -1,0 +1,30 @@
+{
+  "name": "claude-chatview",
+  "version": "1.0.2",
+  "description": "CLI tool to visualize Claude Agent conversations as a chat UI",
+  "type": "module",
+  "bin": {
+    "claude-chatview": "bin/cli.js",
+    "cview": "bin/cli.js"
+  },
+  "scripts": {
+    "start": "node bin/cli.js",
+    "build": "cd src/frontend && npm run build",
+    "dev": "concurrently \"node src/server.js\" \"cd src/frontend && npm run dev\"",
+    "test": "node --test",
+    "postinstall": "cd src/frontend && npm install"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "express": "^4.18.2",
+    "open": "^10.1.0"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2"
+  },
+  "files": [
+    "bin",
+    "src/server.js",
+    "dist"
+  ]
+}
