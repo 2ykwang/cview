@@ -1,4 +1,13 @@
-const SKIP_TYPES = new Set(['progress', 'system', 'file-history-snapshot', 'queue-operation']);
+const SKIP_TYPES = new Set([
+  'progress',
+  'system',
+  'file-history-snapshot',
+  'queue-operation',
+  'last-prompt',
+  'permission-mode',
+  'ai-title',
+  'attachment',
+]);
 
 export function fmtTime(ts) {
   if (!ts) return '';
@@ -23,22 +32,19 @@ export function isSameDay(a, b) {
   return da.getFullYear() === db.getFullYear() && da.getMonth() === db.getMonth() && da.getDate() === db.getDate();
 }
 
-/**
- * Parse <teammate-message> tags from a user message content string.
- * color and summary are optional attributes.
- */
+// teammate-message tags appear in older Claude Code data (e.g. SendMessage-based teams).
+// Modern subagent-only sessions don't emit these, so the parser is a no-op there.
 export function parseTeammateMessages(content) {
+  if (typeof content !== 'string') return [];
   const results = [];
   const regex = /<teammate-message([^>]*)>([\s\S]*?)<\/teammate-message>/g;
   let match;
   while ((match = regex.exec(content)) !== null) {
     const attrsStr = match[1];
     const body = match[2].trim();
-
     const idMatch = attrsStr.match(/teammate_id="([^"]+)"/);
     const colorMatch = attrsStr.match(/color="([^"]+)"/);
     const summaryMatch = attrsStr.match(/summary="([^"]+)"/);
-
     results.push({
       teammateId: idMatch ? idMatch[1] : 'unknown',
       color: colorMatch ? colorMatch[1] : 'gray',
@@ -49,10 +55,8 @@ export function parseTeammateMessages(content) {
   return results;
 }
 
-/**
- * Remove <teammate-message> tags from a content string and return the remaining text.
- */
 export function stripTeammateMessages(content) {
+  if (typeof content !== 'string') return '';
   return content.replace(/<teammate-message[\s\S]*?<\/teammate-message>/g, '').trim();
 }
 
@@ -68,33 +72,32 @@ export function hasRenderableAssistantContent(content) {
   });
 }
 
-/**
- * Transform an array of JSONL records for display rendering.
- * - Removes skipped types
- * - Extracts teammate-message blocks from user messages
- */
+function userArrayHasText(content) {
+  if (!Array.isArray(content)) return false;
+  return content.some(b => b?.type === 'text' && typeof b.text === 'string' && b.text.trim().length > 0);
+}
+
 export function processMessages(records) {
   return records
     .filter(r => r && !SKIP_TYPES.has(r.type))
-    .map(record => {
-      if (record.type === 'user') {
-        const content = typeof record.message?.content === 'string'
-          ? record.message.content
-          : '';
+    .map((r) => {
+      if (r.type !== 'user') return r;
+      const content = r.message?.content;
+      if (typeof content === 'string') {
         const teammateMessages = parseTeammateMessages(content);
-        const plainText = stripTeammateMessages(content);
-        return {
-          ...record,
-          _hasTeammateMessage: teammateMessages.length > 0,
-          _teammateMessages: teammateMessages,
-          _plainText: plainText,
-        };
+        const plainText = teammateMessages.length ? stripTeammateMessages(content) : content;
+        return { ...r, _teammateMessages: teammateMessages, _plainText: plainText };
       }
-      return record;
+      return r;
     })
-    .filter((record) => {
-      if (record.type === 'user') return Boolean(record._plainText);
-      if (record.type === 'assistant') return hasRenderableAssistantContent(record.message?.content);
+    .filter((r) => {
+      if (r.type === 'user') {
+        if (r._teammateMessages?.length) return true; // render as teammate cards
+        if (r._plainText) return Boolean(r._plainText.trim());
+        if (Array.isArray(r.message?.content)) return userArrayHasText(r.message.content);
+        return false;
+      }
+      if (r.type === 'assistant') return hasRenderableAssistantContent(r.message?.content);
       return true;
     });
 }

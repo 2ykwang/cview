@@ -1,7 +1,7 @@
 import express from 'express';
 import cors from 'cors';
 import fs from 'fs/promises';
-import { watch, readFileSync } from 'fs';
+import { watch, readFileSync, readdirSync, existsSync } from 'fs';
 import path from 'path';
 import os from 'os';
 import { fileURLToPath } from 'url';
@@ -20,6 +20,15 @@ const PROJECTS_DIR = path.join(CLAUDE_DIR, 'projects');
 const TRANSCRIPTS_DIR = path.join(CLAUDE_DIR, 'transcripts');
 
 const RENDERABLE_TYPES = new Set(['user', 'assistant']);
+// JSONL records that show up at the head/tail of a file but carry no chat content.
+// Used when picking the "first meaningful" record for metadata extraction.
+const META_ONLY_TYPES = new Set([
+  'last-prompt',
+  'permission-mode',
+  'ai-title',
+  'file-history-snapshot',
+  'queue-operation',
+]);
 const META_CHUNK_BYTES = 128 * 1024;
 const MAX_META_CACHE = 5000;
 const MAX_INDEX_CACHE = 200;
@@ -35,8 +44,7 @@ function normalizeAddress(address = '') {
 }
 
 function isLoopbackAddress(address = '') {
-  const normalized = normalizeAddress(address);
-  return normalized === '127.0.0.1';
+  return normalizeAddress(address) === '127.0.0.1';
 }
 
 function isAllowedLocalOrigin(origin = '') {
@@ -59,7 +67,6 @@ function localApiOnlyGuard(req, res, next) {
   return next();
 }
 
-// Allow CORS in development only, and only for localhost origins.
 if (!IS_PRODUCTION) {
   app.use(cors({
     origin(origin, callback) {
@@ -122,10 +129,6 @@ async function getSessionPromptFromIndex(projectDir, sessionId) {
   }
 }
 
-function stripXmlTags(text) {
-  return text.replace(/<[^>]+>[\s\S]*?<\/[^>]+>/g, '').trim();
-}
-
 function parseJsonLines(lines, maxCount, fromTail = false) {
   const src = fromTail ? lines.slice(-maxCount) : lines.slice(0, maxCount);
   const out = [];
@@ -149,10 +152,18 @@ function getTextContent(messageContent) {
   return '';
 }
 
+// Strip <teammate-message>...</teammate-message> envelopes from a string.
+// Older Claude Code sessions use these to deliver messages from other agents,
+// and the wrapper would otherwise pollute session titles / search snippets.
+function stripTeammateEnvelope(text) {
+  if (typeof text !== 'string') return '';
+  return text.replace(/<teammate-message[\s\S]*?<\/teammate-message>/g, '').trim();
+}
+
 function getRecordSearchableText(record) {
   if (!record) return '';
   if (record.type === 'user') {
-    return stripXmlTags(getTextContent(record.message?.content));
+    return stripTeammateEnvelope(getTextContent(record.message?.content));
   }
   if (record.type === 'assistant' && Array.isArray(record.message?.content)) {
     return record.message.content
@@ -168,7 +179,6 @@ function parseHeadTailLines(headText, tailText, hasTailOffset) {
   const headLines = headText.split('\n').filter(Boolean);
   let tailLines = tailText.split('\n');
   if (hasTailOffset && tailLines.length > 0) {
-    // Drop possibly truncated first line from tail window.
     tailLines = tailLines.slice(1);
   }
   tailLines = tailLines.filter(Boolean);
@@ -200,68 +210,77 @@ async function readHeadTailLines(filePath, stat) {
   }
 }
 
+// Pick the first record that has session metadata (cwd / timestamp).
+// Modern JSONL starts with `last-prompt` / `permission-mode` which carry neither.
+function pickFirstMeaningfulRecord(headRecords) {
+  for (const r of headRecords) {
+    if (!r) continue;
+    if (META_ONLY_TYPES.has(r.type)) continue;
+    if (r.cwd || r.timestamp) return r;
+  }
+  return headRecords.find(r => r && !META_ONLY_TYPES.has(r.type)) || headRecords[0] || {};
+}
+
 async function extractSessionMeta(filePath, projectDir, statOverride = null) {
   const stat = statOverride || await fs.stat(filePath);
   let { headLines, tailLines } = await readHeadTailLines(filePath, stat);
-  let headRecords = parseJsonLines(headLines, 50, false);
+  let headRecords = parseJsonLines(headLines, 80, false);
   let tailRecords = parseJsonLines(tailLines, 80, true);
 
   if (headRecords.length === 0 && stat.size > 0) {
-    // Fallback for unusual cases (e.g. extremely long first line).
     const content = await fs.readFile(filePath, 'utf-8');
     const lines = content.trim().split('\n').filter(Boolean);
     headLines = lines;
     tailLines = lines;
-    headRecords = parseJsonLines(headLines, 50, false);
+    headRecords = parseJsonLines(headLines, 80, false);
     tailRecords = parseJsonLines(tailLines, 80, true);
   }
 
-  const first = headRecords.find(r => r.type !== 'file-history-snapshot') || headRecords[0] || {};
-  const teamName = first.teamName || null;
-  const agentName = first.agentName || null;
-  const cwdParts = (first.cwd || '').split('/').filter(Boolean);
+  const first = pickFirstMeaningfulRecord(headRecords);
+  const cwd = first.cwd || null;
+  const cwdParts = (cwd || '').split('/').filter(Boolean);
   const projectName = cwdParts[cwdParts.length - 1] || 'unknown';
   const projectParent = cwdParts[cwdParts.length - 2] || '';
-  const timestamp = first.timestamp || null;
+  const gitBranch = first.gitBranch || null;
+
+  // First valid timestamp anywhere in the head window.
+  let timestamp = null;
+  for (const r of headRecords) {
+    if (r?.timestamp) { timestamp = r.timestamp; break; }
+  }
 
   let title = '';
   let preview = '';
   const searchParts = [];
 
-  if (teamName) {
-    title = `${teamName} · ${agentName || '?'}`;
-  } else {
-    // 1. Prefer sessions-index.json
-    const sessionId = path.basename(filePath, '.jsonl');
-    const firstPrompt = await getSessionPromptFromIndex(projectDir, sessionId);
-    if (firstPrompt) title = firstPrompt.slice(0, 50);
+  const sessionId = path.basename(filePath, '.jsonl');
+  const firstPrompt = await getSessionPromptFromIndex(projectDir, sessionId);
+  if (firstPrompt) {
+    const stripped = stripTeammateEnvelope(firstPrompt);
+    if (stripped) title = stripped.slice(0, 60);
+  }
 
-    // 2. JSONL head scan
-    if (!title) {
-      for (const r of headRecords) {
-        if (r.type === 'user') {
-          const cnt = getTextContent(r.message?.content);
-          const stripped = stripXmlTags(cnt);
-          if (stripped) { title = stripped.slice(0, 50); break; }
-        }
+  if (!title) {
+    for (const r of headRecords) {
+      if (r.type === 'user') {
+        const cnt = stripTeammateEnvelope(getTextContent(r.message?.content));
+        if (cnt) { title = cnt.slice(0, 60); break; }
       }
-    }
-
-    // 3. Fallback
-    if (!title) {
-      const d = new Date(timestamp || Date.now());
-      const dateStr = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-      title = `${projectName} · ${dateStr}`;
     }
   }
 
-  // Preview: reverse scan of tail records.
+  if (!title) {
+    const d = new Date(timestamp || Date.now());
+    const dateStr = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    title = `${projectName} · ${dateStr}`;
+  }
+
   for (let i = tailRecords.length - 1; i >= 0; i--) {
     const r = tailRecords[i];
     if (r.type === 'assistant' && Array.isArray(r.message?.content)) {
       for (const block of r.message.content) {
         if (block.type === 'text' && block.text) {
-          preview = block.text.slice(0, 40);
+          preview = block.text.slice(0, 60);
           break;
         }
       }
@@ -283,13 +302,10 @@ async function extractSessionMeta(filePath, projectDir, statOverride = null) {
 
   let lastTimestamp = null;
   for (let i = tailRecords.length - 1; i >= 0; i--) {
-    if (tailRecords[i].timestamp) {
-      lastTimestamp = tailRecords[i].timestamp;
-      break;
-    }
+    if (tailRecords[i].timestamp) { lastTimestamp = tailRecords[i].timestamp; break; }
   }
 
-  return { title, preview, teamName, agentName, projectName, projectParent, timestamp, lastTimestamp, searchText };
+  return { title, preview, projectName, projectParent, cwd, gitBranch, timestamp, lastTimestamp, searchText };
 }
 
 async function getSessionMetaCached(filePath, projectDir, statOverride = null) {
@@ -303,7 +319,163 @@ async function getSessionMetaCached(filePath, projectDir, statOverride = null) {
   return meta;
 }
 
-// Prevent path traversal
+// Walk a project directory and return:
+//   - master sessions:   {sid}.jsonl with optional {sid}/subagents/
+//   - orphan sub-runs:   {sid}/subagents/ without a matching {sid}.jsonl
+async function collectProjectSessions(projectDir) {
+  let entries;
+  try { entries = await fs.readdir(projectDir, { withFileTypes: true }); }
+  catch { return []; }
+
+  const masterFiles = new Map();   // sid -> filename
+  const subagentDirs = new Map();  // sid -> dirpath
+
+  for (const entry of entries) {
+    if (entry.isFile() && entry.name.endsWith('.jsonl')) {
+      masterFiles.set(entry.name.replace(/\.jsonl$/, ''), entry.name);
+    } else if (entry.isDirectory()) {
+      const subPath = path.join(projectDir, entry.name, 'subagents');
+      try {
+        const subStat = await fs.stat(subPath);
+        if (subStat.isDirectory()) subagentDirs.set(entry.name, subPath);
+      } catch { /* not a session dir */ }
+    }
+  }
+
+  const sessions = [];
+  for (const [sid, filename] of masterFiles) {
+    sessions.push({
+      sessionId: sid,
+      kind: 'master',
+      filePath: path.join(projectDir, filename),
+      subagentDir: subagentDirs.get(sid) || null,
+    });
+  }
+  for (const [sid, subDir] of subagentDirs) {
+    if (masterFiles.has(sid)) continue;
+    sessions.push({
+      sessionId: sid,
+      kind: 'orphan',
+      filePath: null,
+      subagentDir: subDir,
+    });
+  }
+  return sessions;
+}
+
+async function listSubagents(subagentDir) {
+  if (!subagentDir) return [];
+  let entries;
+  try { entries = await fs.readdir(subagentDir, { withFileTypes: true }); }
+  catch { return []; }
+
+  const byId = new Map();
+  for (const entry of entries) {
+    if (!entry.isFile()) continue;
+    const jsonlMatch = entry.name.match(/^agent-(.+)\.jsonl$/);
+    const metaMatch = entry.name.match(/^agent-(.+)\.meta\.json$/);
+    if (jsonlMatch) {
+      const id = jsonlMatch[1];
+      const obj = byId.get(id) || { agentId: id };
+      obj.jsonlPath = path.join(subagentDir, entry.name);
+      byId.set(id, obj);
+    } else if (metaMatch) {
+      const id = metaMatch[1];
+      const obj = byId.get(id) || { agentId: id };
+      obj.metaPath = path.join(subagentDir, entry.name);
+      byId.set(id, obj);
+    }
+  }
+
+  const results = [];
+  for (const obj of byId.values()) {
+    if (!obj.jsonlPath) continue;
+    let agentType = null;
+    let description = null;
+    if (obj.metaPath) {
+      try {
+        const raw = await fs.readFile(obj.metaPath, 'utf-8');
+        const meta = JSON.parse(raw);
+        if (typeof meta.agentType === 'string') agentType = meta.agentType;
+        if (typeof meta.description === 'string') description = meta.description;
+      } catch { /* ignore corrupt meta */ }
+    }
+    let firstTimestamp = null;
+    try {
+      const stat = await fs.stat(obj.jsonlPath);
+      firstTimestamp = stat.mtimeMs;
+    } catch { /* skip */ }
+    results.push({
+      agentId: obj.agentId,
+      agentType,
+      description,
+      mtime: firstTimestamp,
+    });
+  }
+  results.sort((a, b) => (a.mtime || 0) - (b.mtime || 0));
+  return results;
+}
+
+async function newestMtime(session) {
+  const candidates = [];
+  if (session.filePath) {
+    try { candidates.push((await fs.stat(session.filePath)).mtimeMs); } catch { /* skip */ }
+  }
+  if (session.subagentDir) {
+    try {
+      const subs = await fs.readdir(session.subagentDir, { withFileTypes: true });
+      for (const s of subs) {
+        if (!s.isFile() || !s.name.endsWith('.jsonl')) continue;
+        try {
+          const st = await fs.stat(path.join(session.subagentDir, s.name));
+          candidates.push(st.mtimeMs);
+        } catch { /* skip */ }
+      }
+    } catch { /* skip */ }
+  }
+  if (!candidates.length) return 0;
+  return Math.max(...candidates);
+}
+
+// Build a representative meta for a session entry (master or orphan).
+async function buildSessionRow(projectDir, project, session) {
+  const newest = await newestMtime(session);
+  const subagents = await listSubagents(session.subagentDir);
+  let meta;
+
+  if (session.kind === 'master') {
+    meta = await getSessionMetaCached(session.filePath, projectDir);
+  } else {
+    // Orphan: derive from the first subagent's jsonl head.
+    const first = subagents[0];
+    if (first?.jsonlPath || subagents.length) {
+      const firstPath = first ? path.join(session.subagentDir, `agent-${first.agentId}.jsonl`) : null;
+      if (firstPath) {
+        try { meta = await getSessionMetaCached(firstPath, projectDir); } catch { meta = null; }
+      }
+    }
+    if (!meta) {
+      meta = { title: `orphan · ${session.sessionId.slice(0, 8)}`, preview: '', projectName: path.basename(projectDir), projectParent: '', cwd: null, gitBranch: null, timestamp: null, lastTimestamp: null, searchText: '' };
+    }
+  }
+
+  return {
+    id: session.sessionId,
+    kind: session.kind,
+    project,
+    _projectName: meta.projectName,
+    _projectParent: meta.projectParent,
+    _searchText: meta.searchText || '',
+    title: meta.title,
+    preview: meta.preview,
+    timestamp: meta.timestamp,
+    mtime: new Date(newest).toISOString(),
+    cwd: meta.cwd,
+    gitBranch: meta.gitBranch,
+    subagentCount: subagents.length,
+  };
+}
+
 function validateProject(project) {
   if (!project || project.includes('/') || project.includes('..')) {
     throw Object.assign(new Error('Invalid project'), { status: 400 });
@@ -315,110 +487,66 @@ function validateProject(project) {
   return resolved;
 }
 
-function validateSessionId(sessionId) {
-  if (!sessionId || sessionId.includes('/') || sessionId.includes('..')) {
-    throw Object.assign(new Error('Invalid sessionId'), { status: 400 });
+function validateId(id, label = 'id') {
+  if (!id || id.includes('/') || id.includes('..') || id.includes('\\')) {
+    throw Object.assign(new Error(`Invalid ${label}`), { status: 400 });
   }
 }
 
-// Return project list
-app.get('/api/projects', async (req, res) => {
-  try {
-    const entries = await fs.readdir(PROJECTS_DIR, { withFileTypes: true });
-    const projects = entries
-      .filter(e => e.isDirectory())
-      .map(e => ({ name: e.name, path: e.name }));
-    res.json(projects);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
+function resolveSubagentPath(projectDir, sessionId, agentId) {
+  validateId(sessionId, 'sessionId');
+  validateId(agentId, 'agentId');
+  const filePath = path.join(projectDir, sessionId, 'subagents', `agent-${agentId}.jsonl`);
+  const expectedPrefix = path.join(projectDir, sessionId, 'subagents') + path.sep;
+  if (!filePath.startsWith(expectedPrefix)) {
+    throw Object.assign(new Error('Invalid path'), { status: 400 });
   }
-});
+  return filePath;
+}
 
-// Session file list for a specific project
-app.get('/api/projects/:project/sessions', async (req, res) => {
+function readJsonlMessages(filePath) {
+  const content = readFileSync(filePath, 'utf-8');
+  return content.trim().split('\n')
+    .filter(Boolean)
+    .map(line => { try { return JSON.parse(line); } catch { return null; } })
+    .filter(m => m && RENDERABLE_TYPES.has(m.type));
+}
+
+// For orphan sessions (no master jsonl). Merges every subagent jsonl in the
+// session's subagents/ directory, sorts by timestamp, returns renderable msgs.
+function readOrphanMessages(subagentDirAbs) {
+  const all = [];
+  let entries;
   try {
-    const projectDir = validateProject(req.params.project);
-    const entries = await fs.readdir(projectDir, { withFileTypes: true });
-    const sessions = await Promise.all(
-      entries
-        .filter(e => e.isFile() && e.name.endsWith('.jsonl'))
-        .map(async e => {
-          const filePath = path.join(projectDir, e.name);
-          const stat = await fs.stat(filePath);
-          return {
-            id: e.name.replace('.jsonl', ''),
-            name: e.name,
-            size: stat.size,
-            mtime: stat.mtime,
-          };
-        })
-    );
-    sessions.sort((a, b) => new Date(b.mtime) - new Date(a.mtime));
-    res.json(sessions);
-  } catch (err) {
-    res.status(err.status || 500).json({ error: err.message });
+    entries = readdirSync(subagentDirAbs);
+  } catch {
+    return [];
   }
-});
-
-// Return parsed JSONL session data
-app.get('/api/projects/:project/sessions/:sessionId', async (req, res) => {
-  try {
-    const projectDir = validateProject(req.params.project);
-    validateSessionId(req.params.sessionId);
-    const filePath = path.join(projectDir, `${req.params.sessionId}.jsonl`);
-    const content = await fs.readFile(filePath, 'utf-8');
-    const messages = content.trim().split('\n')
-      .filter(Boolean)
-      .map(line => { try { return JSON.parse(line); } catch { return null; } })
-      .filter(m => m && RENDERABLE_TYPES.has(m.type));
-    res.json(messages);
-  } catch (err) {
-    res.status(err.status || 500).json({ error: err.message });
+  for (const name of entries) {
+    if (!/^agent-.+\.jsonl$/.test(name)) continue;
+    const filePath = path.join(subagentDirAbs, name);
+    let content;
+    try { content = readFileSync(filePath, 'utf-8'); } catch { continue; }
+    const m = name.match(/^agent-(.+)\.jsonl$/);
+    const agentId = m ? m[1] : null;
+    for (const line of content.trim().split('\n')) {
+      if (!line) continue;
+      try {
+        const rec = JSON.parse(line);
+        if (!rec || !RENDERABLE_TYPES.has(rec.type)) continue;
+        if (agentId && !rec.agentName) rec.agentName = `agent-${agentId.slice(0, 7)}`;
+        all.push(rec);
+      } catch { /* skip */ }
+    }
   }
-});
+  all.sort((a, b) => {
+    const ta = a.timestamp ? new Date(a.timestamp).getTime() : 0;
+    const tb = b.timestamp ? new Date(b.timestamp).getTime() : 0;
+    return ta - tb;
+  });
+  return all;
+}
 
-// Return parsed transcript JSONL data
-app.get('/api/transcripts/:sessionId', async (req, res) => {
-  try {
-    validateSessionId(req.params.sessionId);
-    const filePath = path.join(TRANSCRIPTS_DIR, `${req.params.sessionId}.jsonl`);
-    const content = await fs.readFile(filePath, 'utf-8');
-    const messages = content.trim().split('\n')
-      .filter(Boolean)
-      .map(line => { try { return JSON.parse(line); } catch { return null; } })
-      .filter(m => m && RENDERABLE_TYPES.has(m.type));
-    res.json(messages);
-  } catch (err) {
-    res.status(err.status || 500).json({ error: err.message });
-  }
-});
-
-// Transcript file list
-app.get('/api/transcripts', async (req, res) => {
-  try {
-    const entries = await fs.readdir(TRANSCRIPTS_DIR, { withFileTypes: true });
-    const sessions = await Promise.all(
-      entries
-        .filter(e => e.isFile() && e.name.endsWith('.jsonl'))
-        .map(async e => {
-          const filePath = path.join(TRANSCRIPTS_DIR, e.name);
-          const stat = await fs.stat(filePath);
-          return {
-            id: e.name.replace('.jsonl', ''),
-            name: e.name,
-            size: stat.size,
-            mtime: stat.mtime,
-          };
-        })
-    );
-    sessions.sort((a, b) => new Date(b.mtime) - new Date(a.mtime));
-    res.json(sessions);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// Unified session list across all projects
 app.get('/api/sessions', async (req, res) => {
   try {
     const q = typeof req.query.q === 'string' ? req.query.q.trim().toLowerCase() : '';
@@ -426,72 +554,43 @@ app.get('/api/sessions', async (req, res) => {
     const parsedOffset = Number.parseInt(req.query.offset, 10);
     const usePagination = req.query.limit !== undefined
       || req.query.offset !== undefined
-      || req.query.q !== undefined
-      || req.query.excludeTeamSessions !== undefined;
+      || req.query.q !== undefined;
     const limit = Number.isFinite(parsedLimit) ? Math.min(Math.max(parsedLimit, 1), 200) : 40;
     const offset = Number.isFinite(parsedOffset) ? Math.max(parsedOffset, 0) : 0;
-    const excludeTeamSessions = req.query.excludeTeamSessions === '1';
 
     const dirs = await fs.readdir(PROJECTS_DIR, { withFileTypes: true });
-    const sessionFiles = [];
+    const sessionEntries = [];
 
     for (const dir of dirs.filter(e => e.isDirectory())) {
       const projectDir = path.join(PROJECTS_DIR, dir.name);
-      let files;
-      try { files = await fs.readdir(projectDir, { withFileTypes: true }); }
-      catch { continue; }
-
-      for (const file of files.filter(e => e.isFile() && e.name.endsWith('.jsonl'))) {
-        const filePath = path.join(projectDir, file.name);
-        try {
-          const stat = await fs.stat(filePath);
-          sessionFiles.push({
-            id: file.name.replace('.jsonl', ''),
-            project: dir.name,
-            projectDir,
-            filePath,
-            stat,
-            mtime: stat.mtime,
-          });
-        } catch {
-          // File may disappear between readdir and stat; skip safely.
-        }
+      const sessions = await collectProjectSessions(projectDir);
+      for (const session of sessions) {
+        sessionEntries.push({ projectDir, project: dir.name, session });
       }
     }
 
-    sessionFiles.sort((a, b) => new Date(b.mtime) - new Date(a.mtime));
-
-    const buildSessionRow = async (file) => {
-      let meta;
+    const rows = [];
+    for (const entry of sessionEntries) {
       try {
-        meta = await getSessionMetaCached(file.filePath, file.projectDir, file.stat);
-      } catch {
-        meta = { title: file.project, preview: '', teamName: null, agentName: null, projectName: file.project, projectParent: '', timestamp: null };
-      }
-      return {
-        id: file.id,
-        project: file.project,
-        _projectName: meta.projectName,
-        _projectParent: meta.projectParent,
-        _searchText: meta.searchText || '',
-        title: meta.title,
-        preview: meta.preview,
-        timestamp: meta.timestamp,
-        mtime: file.mtime,
-        agentName: meta.agentName,
-        teamName: meta.teamName,
-      };
-    };
+        rows.push(await buildSessionRow(entry.projectDir, entry.project, entry.session));
+      } catch { /* skip broken */ }
+    }
+    rows.sort((a, b) => new Date(b.mtime) - new Date(a.mtime));
 
-    const matchesFilters = (row) => {
-      if (excludeTeamSessions && row.teamName) return false;
+    const matchesFilter = (row) => {
       if (!q) return true;
-      const title = (row.title || '').toLowerCase();
-      const preview = (row.preview || '').toLowerCase();
-      const projectName = (row._projectName || '').toLowerCase();
-      const projectParent = (row._projectParent || '').toLowerCase();
-      const searchText = (row._searchText || '').toLowerCase();
-      return title.includes(q) || preview.includes(q) || projectName.includes(q) || projectParent.includes(q) || searchText.includes(q);
+      const fields = [
+        row.title,
+        row.preview,
+        row._projectName,
+        row._projectParent,
+        row._searchText,
+        row.cwd,
+        row.gitBranch,
+        row.kind,
+        row.id, // allow searching by sessionId prefix
+      ];
+      return fields.some(v => (v || '').toLowerCase().includes(q));
     };
 
     const makeSnippet = (text, queryLower) => {
@@ -509,11 +608,10 @@ app.get('/api/sessions', async (req, res) => {
       return `${prefix}${normalized.slice(start, end)}${suffix}`;
     };
 
-    const applyProjectDisplay = (rows) => {
-      // projectDisplay: include parent directory when project name is ambiguous
+    const finalize = (collected) => {
       const nameCounts = {};
-      for (const s of rows) nameCounts[s._projectName] = (nameCounts[s._projectName] || 0) + 1;
-      for (const s of rows) {
+      for (const s of collected) nameCounts[s._projectName] = (nameCounts[s._projectName] || 0) + 1;
+      for (const s of collected) {
         s.projectDisplay = nameCounts[s._projectName] > 1 && s._projectParent
           ? `${s._projectParent}/${s._projectName}`
           : s._projectName;
@@ -529,50 +627,24 @@ app.get('/api/sessions', async (req, res) => {
         delete s._projectParent;
         delete s._searchText;
       }
+      return collected;
     };
 
     if (!usePagination) {
-      const results = [];
-      for (const file of sessionFiles) {
-        const row = await buildSessionRow(file);
-        if (!matchesFilters(row)) continue;
-        results.push(row);
-      }
-      applyProjectDisplay(results);
-      return res.json(results);
+      const matched = rows.filter(matchesFilter);
+      return res.json(finalize(matched));
     }
 
-    const items = [];
-    let filteredSeen = 0;
-    let hasMore = false;
-
-    for (const file of sessionFiles) {
-      const row = await buildSessionRow(file);
-      if (!matchesFilters(row)) continue;
-
-      if (filteredSeen < offset) {
-        filteredSeen++;
-        continue;
-      }
-
-      if (items.length < limit) {
-        items.push(row);
-        filteredSeen++;
-        continue;
-      }
-
-      hasMore = true;
-      break;
-    }
-
-    applyProjectDisplay(items);
+    const matched = rows.filter(matchesFilter);
+    const page = matched.slice(offset, offset + limit);
+    finalize(page);
     return res.json({
-      items,
+      items: page,
       pagination: {
         offset,
         limit,
-        nextOffset: offset + items.length,
-        hasMore,
+        nextOffset: offset + page.length,
+        hasMore: offset + page.length < matched.length,
       },
     });
   } catch (err) {
@@ -580,259 +652,31 @@ app.get('/api/sessions', async (req, res) => {
   }
 });
 
-// Return team list (scan all projects)
-app.get('/api/teams', async (req, res) => {
+// List subagents under a given master session.
+app.get('/api/projects/:project/sessions/:sessionId/subagents', async (req, res) => {
   try {
-    const projectFilter = req.query.project;
-    const dirs = await fs.readdir(PROJECTS_DIR, { withFileTypes: true });
-
-    // teamName -> { members, sessions, minTime, maxTime, project }
-    const teamMap = new Map();
-    const masterCandidates = [];
-
-    for (const dir of dirs.filter(e => e.isDirectory())) {
-      if (projectFilter && dir.name !== projectFilter) continue;
-      const projectDir = path.join(PROJECTS_DIR, dir.name);
-      let files;
-      try { files = await fs.readdir(projectDir, { withFileTypes: true }); }
-      catch { continue; }
-
-      for (const file of files.filter(e => e.isFile() && e.name.endsWith('.jsonl'))) {
-        const filePath = path.join(projectDir, file.name);
-        const sessionId = file.name.replace('.jsonl', '');
-
-        let stat;
-        let meta;
-        try {
-          stat = await fs.stat(filePath);
-          meta = await getSessionMetaCached(filePath, projectDir, stat);
-        } catch { continue; }
-
-        const { teamName, agentName, timestamp, lastTimestamp, preview } = meta;
-        if (!timestamp) continue;
-
-        if (teamName) {
-          if (!teamMap.has(teamName)) {
-            teamMap.set(teamName, { teamName, members: new Set(), sessions: [], minTime: timestamp, maxTime: lastTimestamp || timestamp, project: dir.name });
-          }
-          const team = teamMap.get(teamName);
-          if (agentName) team.members.add(agentName);
-          team.sessions.push({ sessionId, agentName, timestamp, preview });
-          if (timestamp && timestamp < team.minTime) team.minTime = timestamp;
-          const lt = lastTimestamp || timestamp;
-          if (lt && lt > team.maxTime) team.maxTime = lt;
-        } else if (!agentName) {
-          masterCandidates.push({ sessionId, timestamp, project: dir.name });
-        }
-      }
-    }
-
-    const results = [];
-    for (const [, team] of teamMap) {
-      const teamMinMs = new Date(team.minTime).getTime();
-      let masterSessionId = null;
-      let bestDiff = Infinity;
-      for (const mc of masterCandidates) {
-        if (mc.project !== team.project) continue;
-        const diff = teamMinMs - new Date(mc.timestamp).getTime();
-        if (diff >= 0 && diff < 10 * 60 * 1000 && diff < bestDiff) { bestDiff = diff; masterSessionId = mc.sessionId; }
-      }
-
-      let preview = '';
-      const sortedSessions = [...team.sessions].sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
-      for (let i = sortedSessions.length - 1; i >= 0; i--) {
-        if (sortedSessions[i].preview) {
-          preview = sortedSessions[i].preview.slice(0, 60);
-          break;
-        }
-      }
-
-      results.push({ teamName: team.teamName, members: [...team.members].sort(), lastActivity: team.maxTime, masterSessionId, project: team.project, sessionCount: team.sessions.length, preview });
-    }
-
-    results.sort((a, b) => new Date(b.lastActivity) - new Date(a.lastActivity));
-    res.json(results);
+    const projectDir = validateProject(req.params.project);
+    validateId(req.params.sessionId, 'sessionId');
+    const subagentDir = path.join(projectDir, req.params.sessionId, 'subagents');
+    const subagents = await listSubagents(subagentDir);
+    res.json(subagents);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(err.status || 500).json({ error: err.message });
   }
 });
 
-// Session list within a team
-app.get('/api/teams/:teamName/sessions', async (req, res) => {
+// SSE stream for a session's main jsonl. Falls back to merging the orphan
+// session's subagents/ directory when the master jsonl does not exist.
+app.get('/api/projects/:project/sessions/:sessionId/stream', (req, res) => {
+  let filePath;
+  let subagentDir;
   try {
-    const { teamName } = req.params;
-    if (!teamName || teamName.includes('/') || teamName.includes('..')) return res.status(400).json({ error: 'Invalid teamName' });
-
-    const projectFilter = req.query.project;
-    const dirs = await fs.readdir(PROJECTS_DIR, { withFileTypes: true });
-    const results = [];
-
-    for (const dir of dirs.filter(e => e.isDirectory())) {
-      if (projectFilter && dir.name !== projectFilter) continue;
-      const projectDir = path.join(PROJECTS_DIR, dir.name);
-      let files;
-      try { files = await fs.readdir(projectDir, { withFileTypes: true }); }
-      catch { continue; }
-
-      for (const file of files.filter(e => e.isFile() && e.name.endsWith('.jsonl'))) {
-        const filePath = path.join(projectDir, file.name);
-        const sessionId = file.name.replace('.jsonl', '');
-        let stat;
-        let meta;
-        try {
-          stat = await fs.stat(filePath);
-          meta = await getSessionMetaCached(filePath, projectDir, stat);
-        } catch { continue; }
-        if (!meta || meta.teamName !== teamName) continue;
-        results.push({ sessionId, agentName: meta.agentName, timestamp: meta.timestamp, mtime: stat.mtime, project: dir.name });
-      }
-    }
-
-    results.sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
-    res.json(results);
+    const projectDir = validateProject(req.params.project);
+    validateId(req.params.sessionId, 'sessionId');
+    filePath = path.join(projectDir, `${req.params.sessionId}.jsonl`);
+    subagentDir = path.join(projectDir, req.params.sessionId, 'subagents');
   } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-async function buildTeamTimeline(teamName, projectFilter) {
-  const dirs = await fs.readdir(PROJECTS_DIR, { withFileTypes: true });
-  const allMessages = [];
-  const teamSessions = [];
-  const masterCandidates = [];
-  let teamMinTime = Infinity;
-  let teamProject = null;
-
-  for (const dir of dirs.filter(e => e.isDirectory())) {
-    if (projectFilter && dir.name !== projectFilter) continue;
-    const projectDir = path.join(PROJECTS_DIR, dir.name);
-    let files;
-    try { files = await fs.readdir(projectDir, { withFileTypes: true }); }
-    catch { continue; }
-
-    for (const file of files.filter(e => e.isFile() && e.name.endsWith('.jsonl'))) {
-      const filePath = path.join(projectDir, file.name);
-      const sessionId = file.name.replace('.jsonl', '');
-      let meta;
-      try {
-        const stat = await fs.stat(filePath);
-        meta = await getSessionMetaCached(filePath, projectDir, stat);
-      } catch { continue; }
-      if (!meta) continue;
-
-      const tn = meta.teamName;
-      const an = meta.agentName;
-      const ts = meta.timestamp;
-      if (!ts) continue;
-      if (tn === teamName) {
-        teamSessions.push({ sessionId, agentName: an, filePath, project: dir.name });
-        const ms = new Date(ts).getTime();
-        if (ms < teamMinTime) { teamMinTime = ms; teamProject = dir.name; }
-      } else if (!tn && !an) {
-        masterCandidates.push({ sessionId, filePath, timestamp: ts, project: dir.name });
-      }
-    }
-  }
-
-  // Identify master session
-  let masterSessionId = null;
-  let masterFilePath = null;
-  let bestDiff = Infinity;
-  for (const mc of masterCandidates) {
-    if (mc.project !== teamProject) continue;
-    const diff = teamMinTime - new Date(mc.timestamp).getTime();
-    if (diff >= 0 && diff < 10 * 60 * 1000 && diff < bestDiff) { bestDiff = diff; masterSessionId = mc.sessionId; masterFilePath = mc.filePath; }
-  }
-
-  // Collect member session messages
-  for (const session of teamSessions) {
-    try {
-      const content = await fs.readFile(session.filePath, 'utf-8');
-      for (const line of content.trim().split('\n').filter(Boolean)) {
-        try {
-          const r = JSON.parse(line);
-          if (!RENDERABLE_TYPES.has(r.type)) continue;
-          // Member session user messages: skip if array (tool_result), include if string (direct user input)
-          if (r.type === 'user') {
-            if (Array.isArray(r.message?.content)) continue;
-            const msgContent = typeof r.message?.content === 'string' ? r.message.content : '';
-            if (!msgContent.trim()) continue;
-            // Skip if contains teammate-message tag (teammate-to-teammate messages not handled separately)
-            if (msgContent.includes('<teammate-message')) continue;
-            allMessages.push({ ...r, type: 'user_input', agentName: session.agentName, sessionId: session.sessionId });
-          } else {
-            allMessages.push({ ...r, agentName: session.agentName, sessionId: session.sessionId });
-          }
-        } catch { /* skip */ }
-      }
-    } catch { /* skip */ }
-  }
-
-  // Collect master session messages (parse teammate-message tags)
-  if (masterSessionId && masterFilePath) {
-    try {
-      const content = await fs.readFile(masterFilePath, 'utf-8');
-      for (const line of content.trim().split('\n').filter(Boolean)) {
-        try {
-          const r = JSON.parse(line);
-          if (!RENDERABLE_TYPES.has(r.type)) continue;
-
-          if (r.type === 'user') {
-            // If content is array, it's tool_result feedback → skip
-            if (Array.isArray(r.message?.content)) continue;
-            const msgContent = typeof r.message?.content === 'string' ? r.message.content : '';
-            if (msgContent.includes('<teammate-message')) {
-              // Parse teammate-message tags
-              for (const match of msgContent.matchAll(/<teammate-message([^>]*)>([\s\S]*?)<\/teammate-message>/g)) {
-                const attrs = match[1];
-                const body = match[2].trim();
-                const teammateId = (attrs.match(/teammate_id="([^"]+)"/) || [])[1] || 'unknown';
-                const summary = (attrs.match(/summary="([^"]+)"/) || [])[1] || '';
-                let isIdle = false;
-                try { isIdle = JSON.parse(body).type === 'idle_notification'; } catch { /* text message */ }
-                allMessages.push({
-                  type: isIdle ? 'idle_notification' : 'teammate_incoming',
-                  agentName: 'team-lead', sessionId: masterSessionId,
-                  timestamp: r.timestamp, uuid: r.uuid + '_' + teammateId,
-                  from: teammateId, summary, body: isIdle ? null : body,
-                });
-              }
-            } else {
-              // Plain user message = actual user input → classify as user_input type
-              allMessages.push({ ...r, type: 'user_input', agentName: 'team-lead', sessionId: masterSessionId });
-            }
-          } else {
-            allMessages.push({ ...r, agentName: 'team-lead', sessionId: masterSessionId });
-          }
-        } catch { /* skip */ }
-      }
-    } catch { /* skip */ }
-  }
-
-  allMessages.sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
-  return { teamName, masterSessionId, totalMessages: allMessages.length, messages: allMessages };
-}
-
-// Team timeline (merge all sessions by timestamp)
-app.get('/api/teams/:teamName/timeline', async (req, res) => {
-  try {
-    const { teamName } = req.params;
-    const projectFilter = req.query.project;
-    if (!teamName || teamName.includes('/') || teamName.includes('..')) return res.status(400).json({ error: 'Invalid teamName' });
-
-    const timeline = await buildTeamTimeline(teamName, projectFilter);
-    res.json(timeline);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// SSE: real-time stream for team timeline
-app.get('/api/teams/:teamName/timeline/stream', async (req, res) => {
-  const { teamName } = req.params;
-  const projectFilter = req.query.project;
-  if (!teamName || teamName.includes('/') || teamName.includes('..')) {
-    return res.status(400).json({ error: 'Invalid teamName' });
+    return res.status(err.status || 400).json({ error: err.message });
   }
 
   res.writeHead(200, {
@@ -841,42 +685,39 @@ app.get('/api/teams/:teamName/timeline/stream', async (req, res) => {
     'Connection': 'keep-alive',
   });
 
-  let lastPayload = '';
-  let closed = false;
-  let inflight = false;
+  const masterExists = existsSync(filePath);
+  const orphanAvailable = !masterExists && existsSync(subagentDir);
 
-  const sendLatest = async (force = false) => {
-    if (closed || inflight) return;
-    inflight = true;
+  const sendAll = () => {
     try {
-      const data = await buildTeamTimeline(teamName, projectFilter);
-      const payload = JSON.stringify(data);
-      if (force || payload !== lastPayload) {
-        lastPayload = payload;
-        res.write(`data: ${payload}\n\n`);
-      }
+      const messages = orphanAvailable
+        ? readOrphanMessages(subagentDir)
+        : (masterExists ? readJsonlMessages(filePath) : []);
+      res.write(`data: ${JSON.stringify(messages)}\n\n`);
     } catch {
-      // Keep stream alive; next tick may recover.
-    } finally {
-      inflight = false;
+      // Always send at least one event so the client doesn't show "Loading..." forever.
+      try { res.write(`data: []\n\n`); } catch { /* ignore */ }
     }
   };
 
-  await sendLatest(true);
-  const timer = setInterval(() => { void sendLatest(false); }, 1200);
-  req.on('close', () => {
-    closed = true;
-    clearInterval(timer);
-  });
+  sendAll();
+  const watchers = [];
+  try {
+    if (masterExists) {
+      watchers.push(watch(filePath, () => sendAll()));
+    } else if (orphanAvailable) {
+      watchers.push(watch(subagentDir, () => sendAll()));
+    }
+  } catch { /* ignore */ }
+  req.on('close', () => watchers.forEach(w => { try { w.close(); } catch {} }));
 });
 
-// SSE: real-time stream for project session
-app.get('/api/projects/:project/sessions/:sessionId/stream', (req, res) => {
+// SSE stream for a single subagent jsonl under a master session.
+app.get('/api/projects/:project/sessions/:sessionId/subagents/:agentId/stream', (req, res) => {
   let filePath;
   try {
     const projectDir = validateProject(req.params.project);
-    validateSessionId(req.params.sessionId);
-    filePath = path.join(projectDir, `${req.params.sessionId}.jsonl`);
+    filePath = resolveSubagentPath(projectDir, req.params.sessionId, req.params.agentId);
   } catch (err) {
     return res.status(err.status || 400).json({ error: err.message });
   }
@@ -889,11 +730,7 @@ app.get('/api/projects/:project/sessions/:sessionId/stream', (req, res) => {
 
   const sendAll = () => {
     try {
-      const content = readFileSync(filePath, 'utf-8');
-      const messages = content.trim().split('\n')
-        .filter(Boolean)
-        .map(line => { try { return JSON.parse(line); } catch { return null; } })
-        .filter(m => m && RENDERABLE_TYPES.has(m.type));
+      const messages = readJsonlMessages(filePath);
       res.write(`data: ${JSON.stringify(messages)}\n\n`);
     } catch { /* ignore */ }
   };
@@ -904,11 +741,11 @@ app.get('/api/projects/:project/sessions/:sessionId/stream', (req, res) => {
   req.on('close', () => watcher?.close());
 });
 
-// SSE: real-time transcript stream
+// Transcripts (~/.claude/transcripts/).
 app.get('/api/transcripts/:sessionId/stream', (req, res) => {
   let filePath;
   try {
-    validateSessionId(req.params.sessionId);
+    validateId(req.params.sessionId, 'sessionId');
     filePath = path.join(TRANSCRIPTS_DIR, `${req.params.sessionId}.jsonl`);
   } catch (err) {
     return res.status(err.status || 400).json({ error: err.message });
@@ -922,11 +759,7 @@ app.get('/api/transcripts/:sessionId/stream', (req, res) => {
 
   const sendAll = () => {
     try {
-      const content = readFileSync(filePath, 'utf-8');
-      const messages = content.trim().split('\n')
-        .filter(Boolean)
-        .map(line => { try { return JSON.parse(line); } catch { return null; } })
-        .filter(m => m && RENDERABLE_TYPES.has(m.type));
+      const messages = readJsonlMessages(filePath);
       res.write(`data: ${JSON.stringify(messages)}\n\n`);
     } catch { /* ignore */ }
   };
@@ -937,14 +770,13 @@ app.get('/api/transcripts/:sessionId/stream', (req, res) => {
   req.on('close', () => watcher?.close());
 });
 
-// Serve Vite build output as static files (production)
+// Serve Vite build output as static files (production).
 const distDir = path.join(__dirname, '../dist');
 app.use(express.static(distDir));
 app.get('*', (req, res) => {
   res.sendFile(path.join(distDir, 'index.html'));
 });
 
-// Start server when run directly (ESM main module detection)
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
   startServer();
 }
