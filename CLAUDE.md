@@ -1,101 +1,90 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+Guidance for AI coding agents working on this repository. Keep this file
+short and codebase-wide. Do not record session-specific context here.
 
 ## Commands
 
 ```bash
-# Development (Express :3001 + Vite HMR :5173 simultaneously)
-npm run dev
-
-# Frontend production build (generates dist/)
-npm run build          # run from root
-# or
-cd src/frontend && npm run build
-
-# Run server standalone (serves built dist/)
-npm start              # bin/cli.js → server.js + auto-opens browser
-
-# Install frontend dependencies
-cd src/frontend && npm install
+npm run dev          # Express :3001 + Vite :5173 (HMR)
+npm run build        # Frontend build → dist/
+npm start            # Run the built server + open browser
+npm run lint:design  # Validate DESIGN.md against the official spec
 ```
 
-During development, Vite (`vite.config.js`) automatically proxies `/api` requests to the Express server (`:3001`).
+To regenerate README screenshots, run `bash scripts/capture-demo.sh`.
 
-## Architecture
-
-### Overview
+## Data on disk
 
 ```
-bin/cli.js          → startServer() + open browser
-src/server.js       → Express API (read-only, accesses ~/.claude/)
-src/frontend/       → React + Vite SPA
-dist/               → Build output (served as static files by server.js)
+~/.claude/projects/{-encoded-cwd}/
+├── {sessionId}.jsonl              ← master session (isSidechain: false)
+├── {sessionId}/subagents/
+│   ├── agent-{agentId}.jsonl      ← subagent transcript (isSidechain: true)
+│   └── agent-{agentId}.meta.json  ← {"agentType","description"}
+~/.claude/transcripts/{sessionId}.jsonl
 ```
 
-### Data Flow
+- **Master session** = top-level `{sid}.jsonl`.
+- **Subagent run** = file under `{sid}/subagents/`. Linked to a master by
+  matching the `Agent` tool_use `input.description` (+ `subagent_type`) to
+  the subagent's `.meta.json`.
+- **Orphan session** = `{sid}/subagents/` exists without a matching
+  `{sid}.jsonl`. The stream endpoint merges all subagent jsonls by
+  timestamp.
 
-Claude Code stores all sessions as JSONL files:
-```
-~/.claude/projects/{-Users-name-project}/  ← per-project directory
-    {sessionId}.jsonl                       ← session file (each line = JSON record)
-~/.claude/transcripts/                     ← transcripts
-```
+Records are typed JSON Lines. Only `user` / `assistant` records are
+rendered as bubbles; metadata-only types (`last-prompt`, `permission-mode`,
+`attachment`, etc.) are filtered. See `RENDERABLE_TYPES` and `SKIP_TYPES`
+in `src/server.js` and `src/frontend/src/utils/parseSession.js`.
 
-Key fields in each JSONL record:
-- `type`: `user` | `assistant` | `progress` | `system` | `file-history-snapshot` | `queue-operation`
-- `message.content`: string or content block array (`text`, `tool_use`, `tool_result`, `thinking`)
-- `agentName`: team agent name (absent for master/standalone sessions)
-- `teamName`: team name (absent for individual sessions)
-
-### Team Session Structure
-
-When Claude Code's team feature is used, two session types are created:
-- **Master session**: `agentName=null, teamName=null` — the session that started the team. User messages contain `<teammate-message>` XML tags.
-- **Member sessions**: `agentName=planner`, `teamName=messenger-ui-team`, etc. — individual agent sessions.
-
-`GET /api/teams/:teamName/timeline` merges all member sessions + master session by timestamp into a single timeline.
-
-### API Endpoints (server.js)
+## API endpoints
 
 | Endpoint | Description |
-|----------|-------------|
-| `GET /api/sessions` | All sessions list (includes agentName, teamName) |
-| `GET /api/projects/:project/sessions/:sessionId/stream` | SSE: real-time session file stream |
-| `GET /api/transcripts/:sessionId/stream` | SSE: real-time transcript stream |
-| `GET /api/teams` | Team list (includes members, masterSessionId) |
-| `GET /api/teams/:teamName/timeline` | Merged team conversation timeline |
+|---|---|
+| `GET /api/projects` | Project directory list |
+| `GET /api/sessions` | Unified session list (master + orphan). Supports `q`, `limit`, `offset` |
+| `GET /api/projects/:project/sessions/:sessionId/subagents` | Subagent metadata list for a master session |
+| `GET /api/projects/:project/sessions/:sessionId/stream` | SSE: master JSONL (falls back to merged orphan subagents) |
+| `GET /api/projects/:project/sessions/:sessionId/subagents/:agentId/stream` | SSE: a single subagent JSONL |
+| `GET /api/transcripts/:sessionId/stream` | SSE: a transcript JSONL |
 
-### Frontend Key Files
+## Frontend key files
 
 | File | Role |
-|------|------|
-| `pages/SessionSelect.jsx` | Session/team list screen. Filters out individual sessions with teamName (included in group chat) |
-| `pages/Messenger.jsx` | 1:1 session chat screen. Receives real-time updates via SSE |
-| `pages/TeamTimeline.jsx` | Team group chat screen. Displays merged per-member timeline |
-| `components/MessageBubble.jsx` | Message bubble for 1:1 chat (user/assistant) |
-| `components/ToolCard.jsx` | tool_use block renderer. Custom UI per tool: SendMessage, Bash, Read/Write/Edit, Task*, Glob/Grep |
-| `components/Avatar.jsx` | Agent avatar. Exports `getAvatarColor(agentName)` |
-| `utils/parseSession.js` | `processMessages()`, `fmtTime()`, `fmtDate()`, `isSameDay()` |
+|---|---|
+| `pages/SessionSelect.jsx` | Session list + search |
+| `pages/Messenger.jsx` | Chat view, timeline slider, subagent matching |
+| `components/MessageBubble.jsx` | User / assistant rendering |
+| `components/ToolCard.jsx` | Per-tool cards (Bash, Read/Write/Edit, Agent, Grep/Glob, …) |
+| `components/SubagentExpander.jsx` | Inline subagent transcript |
+| `components/DateNavigator.jsx` | Timeline slider |
+| `components/OpenSessionCommand.jsx` | `cd … && claude --resume …` popover |
+| `components/TeammateMessage.jsx` | `<teammate-message>` envelope card |
+| `utils/parseSession.js` | `processMessages`, formatters, content guards |
+| `styles/tokens.js` | JS-side mirror of CSS variables |
+| `index.css` | `:root` + `[data-theme="dark"]` token definitions |
+| `hooks/useTheme.js` | Theme persistence (`cview-theme` in `localStorage`) |
+| `hooks/useExport.js` | HTML / PNG / JPG export |
 
-### Message Type Handling Rules
+## Design tokens
 
-**Filtered (hidden)**: `user`, `teammate_incoming`, `idle_notification`, `progress`, `system`, `file-history-snapshot`, `queue-operation`
+`DESIGN.md` is the source of truth for color, spacing, and typography. It
+follows the [`@google/design.md`](https://github.com/google-labs-code/design.md)
+format and is validated by `npm run lint:design`. Run the linter after any
+token change.
 
-**Special types**:
-- `user_input`: type converted by server. Actual user input from master/member sessions (plain string content). Rendered as right-side bubble.
-- thinking-only messages (all blocks in content array are `thinking` type): filtered out.
+When you need a value in code, import from `styles/tokens.js` (JS) or use
+`var(--token)` (CSS). Do not inline hex values. The only intentional
+exceptions are documented in `DESIGN.md`.
 
-**User message handling in team timeline (server.js)**:
-- content is array → `tool_result` feedback → skip
-- content contains `<teammate-message>` → parse as `teammate_incoming` / `idle_notification`
-- otherwise plain string → convert to `type: 'user_input'` and include
+## Project conventions
 
-### Message Grouping
-
-`breakGroup(a, b)` splits a group when either condition is met:
-1. Different sender (`agentName`)
-2. Timestamp difference between two messages ≥ 1 minute
-
-First message in group: shows avatar + sender name
-Last message in group: shows bubble tail (CSS `.bubble-in` / `.bubble-out`)
+- Read-only: the server never writes back to `~/.claude/`.
+- Local-only: `/api` rejects non-loopback IPs and non-localhost `Origin`.
+- SPA fallback: `server.js` serves `dist/` and falls back to `index.html`
+  for unknown paths.
+- Path traversal in any `:project` / `:sessionId` / `:agentId` parameter
+  is rejected with HTTP 400.
+- Screenshots in `assets/screenshots/` are tracked via Git LFS
+  (see `.gitattributes`). Regenerate them with `npm run capture-demo`.

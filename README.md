@@ -1,76 +1,91 @@
-# claude-chatview
+<div align="center">
+  <h1>claude-chatview</h1>
+  <p>Local chat-style viewer for Claude Code sessions.</p>
+</div>
 
-![cview demo](assets/demo-screenshot.png)
+<p align="center">
+  <a href="README.md">English</a> | <a href="assets/README_KO.md">한국어</a>
+</p>
 
-`claude-chatview` is a local viewer for Claude Code sessions.
+![cview — session list](assets/screenshots/list.png)
 
-It reads session data from:
-- `~/.claude/projects`
-- `~/.claude/transcripts`
+<details>
+<summary>More screenshots</summary>
 
-Then it presents everything in a messenger-style UI, so you can browse, search, and review activity quickly.
+![Search across title, project, branch, cwd, and content](assets/screenshots/search.png)
 
-## Quick Start
+![Chat view with conversation timeline](assets/screenshots/chat.png)
 
-### Run directly (recommended)
+</details>
+
+Find and reopen past Claude Code sessions — searchable, rendered as a chat.
+
+## Install & run
+
 ```bash
 npx claude-chatview
 ```
 
 Your browser opens automatically at `http://localhost:3001`.
 
-### Global install
+Global install:
 ```bash
 npm i -g claude-chatview
 cview
 ```
 
-## Why Use It?
-- Read session history without opening raw JSONL files
-- Find recent sessions quickly with search
-- Review Agent Teams activity in a single timeline view
-- Export selected messages as PNG/JPG
-
 ## Features
-- Session list and search
-- Standard chat session view
-- Agent Teams timeline view
-- Markdown/code block rendering
-- HTML export and message capture (PNG/JPG)
 
-## Optional Configuration
+- Per-session chat view with grouped consecutive messages, code-aware
+  Markdown, and per-tool cards.
+- Inline subagent expansion — `Agent` tool calls expand the subagent
+  transcript at the call site.
+- Conversation timeline — a draggable slider across the top of the chat
+  for seeking in long sessions. Arrow / Home / End / PageUp / PageDown
+  also work.
+- Open in terminal — every session row produces a
+  `cd "<cwd>" && claude --resume <session-id>` snippet you can copy.
+- Search across session title, last reply, project name, cwd path,
+  git branch, and `sessionId` prefix.
+- Light and dark themes (respects `prefers-color-scheme`).
+- Export — save the visible transcript as standalone HTML, or screenshot
+  any selection of messages as PNG / JPG.
+- Read-only. cview never writes to your session files.
+
+## Keyboard
+
+The timeline slider is focusable:
+
+| Key | Action |
+|-----|--------|
+| `←` / `→` | Step one message |
+| `PageUp` / `PageDown` | Step 10 messages |
+| `Home` / `End` | Jump to start / end |
+
+## Configuration
+
 | Variable | Default | Description |
 |---|---|---|
 | `PORT` | `3001` | Server port |
 | `CVIEW_CLAUDE_DIR` | `~/.claude` | Claude data root |
 
-Example:
 ```bash
 PORT=4000 cview
 ```
 
 ## Security
-- Runs in local-only mode (`127.0.0.1` loopback)
-- Remote exposure (for example `0.0.0.0`) is not supported
-- `/api` only allows local IP + local Origin
+
+- Local-only mode on `127.0.0.1`.
+- `/api` rejects non-loopback IPs and non-localhost `Origin` headers.
+- Path traversal in `:project` / `:sessionId` / `:agentId` is validated.
 
 ## Development
+
 ```bash
 npm install
-npm run dev
-```
-
-- Frontend (Vite): `http://localhost:5173`
-- API (Express): `http://127.0.0.1:3001`
-
-Build:
-```bash
-npm run build
-```
-
-Test:
-```bash
-npm test
+npm run dev          # Express :3001 + Vite :5173
+npm run build        # Production build into dist/
+npm run lint:design  # Validate DESIGN.md against the official spec
 ```
 
 ## License
