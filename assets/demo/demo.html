@@ -1,0 +1,667 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>cview demo</title>
+<style>
+  :root {
+    --bg: #ffffff;
+    --bg-alt: #f9fafb;
+    --surface: #ffffff;
+    --surface-2: #f2f4f6;
+    --surface-3: #e5e8eb;
+    --border: #e5e8eb;
+    --border-strong: #d1d6db;
+    --text: #191f28;
+    --text-dim: #4e5968;
+    --text-muted: #8b95a1;
+    --text-faint: #b0b8c1;
+    --accent: #3182f6;
+    --accent-hover: #1b64da;
+    --accent-bg: #e8f3ff;
+    --user-bubble: #3182f6;
+    --user-bubble-text: #ffffff;
+    --agent-bubble: #f2f4f6;
+    --success: #0ac674;
+    --warning: #ff9500;
+    --danger: #f04452;
+    --diff-add-bg: #e6f7ed;
+    --diff-add-fg: #0a7c4d;
+    --diff-del-bg: #fde7e9;
+    --diff-del-fg: #b8313a;
+    --code-bg: #f2f4f6;
+    --code-fg: #3182f6;
+    --font-body: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    --font-mono: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, monospace;
+  }
+  .dark {
+    --bg: #17171c;
+    --bg-alt: #1c1c22;
+    --surface: #23232a;
+    --surface-2: #2a2a33;
+    --surface-3: #32323c;
+    --border: #2a2a33;
+    --border-strong: #3d3d48;
+    --text: #e5e8eb;
+    --text-dim: #b0b8c1;
+    --text-muted: #8b95a1;
+    --text-faint: #6b7480;
+    --accent: #4593fc;
+    --accent-hover: #6aa9ff;
+    --accent-bg: #15243a;
+    --agent-bubble: #2a2a33;
+    --diff-add-bg: #0e2415;
+    --diff-add-fg: #3acc8a;
+    --diff-del-bg: #2d1015;
+    --diff-del-fg: #ff6675;
+    --code-bg: #1c1c22;
+    --code-fg: #6aa9ff;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { font-family: var(--font-body); background: #0b0b10; color: #e5e8eb; }
+  body { padding: 32px; display: flex; flex-direction: column; gap: 32px; align-items: center; }
+  .frame {
+    width: 1180px;
+    height: 760px;
+    border-radius: 12px;
+    overflow: hidden;
+    background: var(--bg);
+    color: var(--text);
+    border: 1px solid var(--border);
+    box-shadow: 0 12px 30px rgba(0, 0, 0, 0.4);
+    display: flex;
+    flex-direction: column;
+  }
+  /* All frames default to dark — capture target. */
+  .frame { color-scheme: dark; }
+  .caption { font-size: 13px; color: #8b95a1; font-weight: 600; }
+
+  /* shared */
+  .header {
+    padding: 14px 20px;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface);
+    display: flex; align-items: center; gap: 12px; flex-shrink: 0;
+  }
+  .logo { font-size: 17px; font-weight: 700; color: var(--accent); letter-spacing: -0.01em; }
+  .tagline { font-size: 12px; color: var(--text-muted); }
+  .spacer { flex: 1; }
+  .icon-btn {
+    width: 28px; height: 28px; border-radius: 6px; border: 1px solid var(--border);
+    background: transparent; color: var(--text-dim); display: inline-flex;
+    align-items: center; justify-content: center; cursor: pointer;
+    padding: 0;
+  }
+  .toolbar { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
+
+  /* session list */
+  .search-wrap { padding: 10px 16px; background: var(--surface); border-bottom: 1px solid var(--border); }
+  .search-inner {
+    display: flex; align-items: center; gap: 8px;
+    padding: 8px 14px;
+    background: var(--bg-alt);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    color: var(--text-muted);
+    font-size: 14px;
+  }
+  .search-inner input {
+    flex: 1; border: none; outline: none; background: transparent;
+    color: var(--text); font: inherit;
+  }
+  .list { flex: 1; overflow-y: auto; }
+  .row { display: flex; gap: 12px; padding: 12px 16px; border-bottom: 1px solid var(--border); align-items: flex-start; cursor: pointer; }
+  .row:hover { background: var(--bg-alt); }
+  .row.focus { background: var(--bg-alt); }
+  .avatar {
+    width: 40px; height: 40px; border-radius: 50%; flex-shrink: 0;
+    color: #fff; display: flex; align-items: center; justify-content: center;
+    font-size: 14px; font-weight: 700; margin-top: 2px;
+  }
+  .body { flex: 1; min-width: 0; }
+  .row-top { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; margin-bottom: 2px; }
+  .title { font-size: 14px; font-weight: 600; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 1; }
+  .time { font-size: 11px; color: var(--text-muted); flex-shrink: 0; }
+  .preview { font-size: 13px; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-bottom: 4px; }
+  .row-chips { display: flex; gap: 5px; align-items: center; flex-wrap: wrap; }
+  .row-spacer { flex: 1; min-width: 8px; }
+  .chip {
+    font-size: 10px; line-height: 1.4; padding: 0 6px; border-radius: 4px;
+    border: 1px solid var(--border); background: var(--bg-alt);
+    color: var(--text-muted); font-family: var(--font-mono);
+    display: inline-flex; align-items: center; gap: 3px;
+  }
+  .chip-sub { color: var(--accent); background: var(--accent-bg); border-color: var(--accent); border-radius: 999px; padding: 0 6px; font-weight: 600; font-family: var(--font-body); display: inline-flex; align-items: center; gap: 2px; }
+  .chip-orphan { color: var(--warning); background: transparent; border-color: var(--warning); border-radius: 999px; padding: 0 6px; font-weight: 500; font-family: var(--font-body); font-size: 10px; line-height: 1.4; }
+  .chip-mark { background: var(--accent-bg); color: var(--accent); border-radius: 3px; padding: 0 2px; font-weight: 600; }
+
+  /* chat */
+  .chat-header {
+    padding: 10px 16px;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; gap: 12px;
+  }
+  .back-btn {
+    padding: 6px 12px; border-radius: 6px; border: 1px solid var(--border);
+    background: transparent; color: var(--text-dim); cursor: pointer; font-size: 13px;
+    display: inline-flex; align-items: center; gap: 6px;
+  }
+  .session-title { font-size: 15px; font-weight: 700; color: var(--text); display: flex; align-items: center; gap: 6px; }
+  .session-sub { display: flex; gap: 8px; align-items: center; margin-top: 2px; font-size: 11px; color: var(--text-muted); }
+  .session-sub .cwd { font-family: var(--font-mono); }
+
+  .timeline {
+    padding: 8px 16px 10px;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+  }
+  .timeline-labels { display: flex; justify-content: space-between; margin-bottom: 6px; font-size: 11px; color: var(--text-muted); }
+  .timeline-active { color: var(--text); font-weight: 600; display: inline-flex; gap: 6px; align-items: center; }
+  .timeline-active .count { font-size: 10px; background: var(--bg-alt); border: 1px solid var(--border); padding: 0 6px; border-radius: 999px; color: var(--text-muted); }
+  .track { position: relative; height: 6px; border-radius: 999px; background: var(--surface-3); }
+  .track-fill { position: absolute; left: 0; top: 0; bottom: 0; width: 42%; background: var(--accent); border-radius: 999px; }
+  .track-handle { position: absolute; left: 42%; top: 50%; transform: translate(-50%, -50%); width: 14px; height: 14px; background: var(--accent); border: 2px solid var(--surface); border-radius: 50%; box-shadow: 0 1px 3px rgba(0,0,0,0.18); }
+  .day-mark { position: absolute; width: 2px; height: 10px; transform: translate(-50%, -50%); top: 50%; background: var(--text-faint); border-radius: 1px; }
+
+  .messages { flex: 1; overflow-y: auto; padding: 20px 16px; background: var(--bg); }
+  .date-sep { display: flex; align-items: center; gap: 12px; margin: 12px 0; }
+  .date-sep .line { flex: 1; height: 1px; background: var(--border); }
+  .date-sep .label { padding: 2px 12px; border-radius: 14px; background: var(--surface); color: var(--text-muted); font-size: 12px; border: 1px solid var(--border); }
+
+  .msg-row { display: flex; gap: 8px; margin-bottom: 16px; align-items: flex-start; }
+  .msg-row .av { flex-shrink: 0; width: 32px; }
+  .msg-row .av .a {
+    width: 32px; height: 32px; border-radius: 50%; color: #fff;
+    display: flex; align-items: center; justify-content: center; font-size: 14px; font-weight: 700;
+  }
+  .msg-body { flex: 1; min-width: 0; max-width: 75%; }
+  .agent-line { display: flex; align-items: baseline; gap: 5px; margin-bottom: 3px; padding-left: 2px; }
+  .agent-name { font-size: 13px; font-weight: 600; color: var(--accent); }
+  .agent-model { font-size: 11px; color: var(--text-muted); }
+  .bubble { background: var(--agent-bubble); border-radius: 6px 18px 18px 18px; padding: 8px 12px; position: relative; color: var(--text); font-size: 14px; line-height: 1.55; }
+  .bubble::before { content: ''; position: absolute; left: -7px; bottom: 0; width: 0; height: 0; border-right: 7px solid var(--agent-bubble); border-bottom: 7px solid transparent; }
+  .bubble-time { display: flex; justify-content: flex-end; margin-top: 3px; font-size: 11px; color: var(--text-muted); }
+
+  .user-row { display: flex; justify-content: flex-end; margin-bottom: 16px; }
+  .user-bubble {
+    max-width: 75%; background: var(--user-bubble); color: var(--user-bubble-text);
+    border-radius: 18px 6px 18px 18px; padding: 8px 12px; position: relative;
+    font-size: 14px; line-height: 1.55;
+  }
+  .user-bubble::after { content: ''; position: absolute; right: -7px; bottom: 0; width: 0; height: 0; border-left: 7px solid var(--user-bubble); border-bottom: 7px solid transparent; }
+  .user-bubble .bubble-time { color: rgba(255,255,255,0.7); }
+
+  /* tool cards */
+  .tool {
+    margin: 4px 0; padding: 8px 12px; background: var(--surface);
+    border: 1px solid var(--border); border-left: 3px solid var(--border-strong);
+    border-radius: 10px;
+  }
+  .tool.agent { border-left-color: var(--accent); }
+  .tool-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .tool-icon { color: var(--text-dim); display: inline-flex; align-items: center; }
+  .tool-icon.accent { color: var(--accent); }
+  .tool-name { font-family: var(--font-mono); color: var(--text-dim); font-size: 12px; }
+  .tool-desc { color: var(--text); font-size: 14px; }
+  .bash-cmd { margin-top: 6px; padding: 8px 10px; background: var(--code-bg); border: 1px solid var(--border); border-radius: 6px; font-family: var(--font-mono); font-size: 12px; color: var(--text); white-space: pre-wrap; }
+  .file-path { font-size: 12px; color: var(--accent); font-family: var(--font-mono); }
+  .diff-del { padding: 4px 8px; background: var(--diff-del-bg); color: var(--diff-del-fg); font-size: 12px; font-family: var(--font-mono); border-radius: 4px; margin-bottom: 4px; }
+  .diff-add { padding: 4px 8px; background: var(--diff-add-bg); color: var(--diff-add-fg); font-size: 12px; font-family: var(--font-mono); border-radius: 4px; }
+  .type-tag { font-size: 11px; color: var(--accent); background: var(--accent-bg); border: 1px solid var(--accent); padding: 1px 6px; border-radius: 4px; font-weight: 600; }
+
+  /* avatar colors */
+  .av-blue { background: #3182f6; }
+  .av-teal { background: #00C2C8; }
+  .av-indigo { background: #6F7BFF; }
+  .av-mint { background: #4ECCB5; }
+  .av-amber { background: #FFB940; }
+  .av-pink { background: #FF7676; }
+
+  /* badges (chat header) */
+  .badge-sub { font-size: 11px; padding: 1px 7px; border-radius: 999px; background: var(--accent-bg); color: var(--accent); border: 1px solid var(--accent); font-weight: 600; display: inline-flex; align-items: center; gap: 3px; }
+  .badge-branch { font-size: 11px; padding: 1px 7px; border-radius: 4px; background: var(--bg-alt); border: 1px solid var(--border); color: var(--text-muted); font-family: var(--font-mono); }
+
+  /* code */
+  .md-code { font-family: var(--font-mono); background: var(--code-bg); color: var(--code-fg); padding: 1px 5px; border-radius: 4px; font-size: 12px; }
+
+  /* Capture mode: open with ?only=N to show only the Nth frame, no padding,
+     so a headless browser can shoot a tight crop. */
+  body[data-only] { padding: 0; gap: 0; background: transparent; }
+  body[data-only] .caption { display: none; }
+  body[data-only] .frame { display: none; }
+  body[data-only] .frame.show { display: flex; box-shadow: none; border: none; border-radius: 0; }
+</style>
+<script>
+  // Apply once at parse time so the headless browser's first paint already
+  // matches the target.
+  (function () {
+    var m = location.search.match(/[?&]only=(\d+)/);
+    if (!m) return;
+    var n = parseInt(m[1], 10);
+    document.documentElement.addEventListener('DOMContentLoaded', function () {
+      // no-op fallback
+    });
+    // Run as soon as body is parsed.
+    var apply = function () {
+      if (!document.body) return setTimeout(apply, 0);
+      document.body.dataset.only = String(n);
+      var frames = document.querySelectorAll('.frame');
+      if (frames[n - 1]) frames[n - 1].classList.add('show');
+    };
+    apply();
+  })();
+</script>
+</head>
+<body class="dark">
+
+<!-- 1. SESSION LIST (Dark) -->
+<div class="caption">1 · Session list (light)</div>
+<div class="frame">
+  <div class="header">
+    <span class="logo">cview</span>
+    <span class="tagline">Claude Code session viewer</span>
+    <span class="spacer"></span>
+    <button class="icon-btn" title="Toggle theme">
+      <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 1 0 9.8 9.8z"/></svg>
+    </button>
+  </div>
+  <div class="search-wrap">
+    <div class="search-inner">
+      <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
+      <input value="" placeholder="Search sessions, project, or content...">
+    </div>
+  </div>
+  <div class="list">
+    <div class="row focus">
+      <div class="avatar av-blue">A</div>
+      <div class="body">
+        <div class="row-top"><span class="title">Refactor AuthService to use the new TokenStore</span><span class="time">14:32</span></div>
+        <div class="preview">All 14 tests pass. The legacy <code class="md-code">setSession</code> helper has been removed.</div>
+        <div class="row-chips">
+          <span class="chip"><svg viewBox="0 0 24 24" width="9" height="9" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7a2 2 0 0 1 2-2h5l2 2h7a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg> ~/Projects/awesome-todo-app</span>
+          <span class="chip">main</span>
+          <span class="chip-sub"><svg viewBox="0 0 24 24" width="9" height="9" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="7" width="16" height="12" rx="3"/><path d="M9 12h.01M15 12h.01"/></svg> 3</span>
+          <span class="row-spacer"></span>
+          <button class="icon-btn" title="Show open command"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg></button>
+        </div>
+      </div>
+    </div>
+    <div class="row">
+      <div class="avatar av-teal">P</div>
+      <div class="body">
+        <div class="row-top"><span class="title">Wire up Stripe webhook idempotency keys</span><span class="time">Yesterday</span></div>
+        <div class="preview">I'll start by checking how the existing webhook handler validates events...</div>
+        <div class="row-chips">
+          <span class="chip"><svg viewBox="0 0 24 24" width="9" height="9" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7a2 2 0 0 1 2-2h5l2 2h7a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg> ~/Projects/payments-backend</span>
+          <span class="chip">feat/idempotency</span>
+          <span class="row-spacer"></span>
+          <button class="icon-btn" title="Show open command"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg></button>
+        </div>
+      </div>
+    </div>
+    <div class="row">
+      <div class="avatar av-indigo">L</div>
+      <div class="body">
+        <div class="row-top"><span class="title">Improve hero copy and CTA contrast on the landing page</span><span class="time">2d ago</span></div>
+        <div class="preview">Updated the gradient to meet WCAG AA, kept the button alignment as-is.</div>
+        <div class="row-chips">
+          <span class="chip"><svg viewBox="0 0 24 24" width="9" height="9" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7a2 2 0 0 1 2-2h5l2 2h7a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg> ~/Projects/landing-page-v2</span>
+          <span class="chip">main</span>
+          <span class="chip-sub"><svg viewBox="0 0 24 24" width="9" height="9" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="7" width="16" height="12" rx="3"/><path d="M9 12h.01M15 12h.01"/></svg> 1</span>
+          <span class="row-spacer"></span>
+          <button class="icon-btn" title="Show open command"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg></button>
+        </div>
+      </div>
+    </div>
+    <div class="row">
+      <div class="avatar av-mint">M</div>
+      <div class="body">
+        <div class="row-top"><span class="title">Investigate spike in 502s from the metrics ingest pipeline</span><span class="time">3d ago</span></div>
+        <div class="preview">Found a connection-pool leak in the rate limiter — pushing a fix to staging now.</div>
+        <div class="row-chips">
+          <span class="chip"><svg viewBox="0 0 24 24" width="9" height="9" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7a2 2 0 0 1 2-2h5l2 2h7a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg> ~/Projects/metrics-dashboard</span>
+          <span class="chip">incident/ingest-502</span>
+          <span class="chip-orphan">orphan</span>
+          <span class="chip-sub"><svg viewBox="0 0 24 24" width="9" height="9" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="7" width="16" height="12" rx="3"/><path d="M9 12h.01M15 12h.01"/></svg> 5</span>
+          <span class="row-spacer"></span>
+          <button class="icon-btn" title="Show open command"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg></button>
+        </div>
+      </div>
+    </div>
+    <div class="row">
+      <div class="avatar av-amber">G</div>
+      <div class="body">
+        <div class="row-top"><span class="title">Generate release notes for v2.4.0 from the merged PRs</span><span class="time">Mar 8</span></div>
+        <div class="preview">Drafted three sections: highlights, breaking changes, and migration notes.</div>
+        <div class="row-chips">
+          <span class="chip"><svg viewBox="0 0 24 24" width="9" height="9" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7a2 2 0 0 1 2-2h5l2 2h7a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg> ~/Projects/awesome-todo-app</span>
+          <span class="chip">release/2.4</span>
+          <span class="row-spacer"></span>
+          <button class="icon-btn" title="Show open command"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg></button>
+        </div>
+      </div>
+    </div>
+    <div class="row">
+      <div class="avatar av-pink">D</div>
+      <div class="body">
+        <div class="row-top"><span class="title">Document the new feature-flag client for product engineers</span><span class="time">Mar 5</span></div>
+        <div class="preview">Added a short guide under docs/flags.md and three runnable examples.</div>
+        <div class="row-chips">
+          <span class="chip"><svg viewBox="0 0 24 24" width="9" height="9" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7a2 2 0 0 1 2-2h5l2 2h7a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg> ~/Projects/internal-docs</span>
+          <span class="chip">main</span>
+          <span class="row-spacer"></span>
+          <button class="icon-btn" title="Show open command"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg></button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- 2. SEARCH (Dark) -->
+<div class="caption">2 · Search results (dark)</div>
+<div class="frame">
+  <div class="header">
+    <span class="logo">cview</span>
+    <span class="tagline">Claude Code session viewer</span>
+    <span class="spacer"></span>
+    <button class="icon-btn" title="Toggle theme">
+      <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 1 0 9.8 9.8z"/></svg>
+    </button>
+  </div>
+  <div class="search-wrap">
+    <div class="search-inner" style="border-color: var(--accent);">
+      <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" style="color: var(--accent);"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
+      <input value="stripe">
+    </div>
+  </div>
+  <div class="list">
+    <div class="row">
+      <div class="avatar av-teal">P</div>
+      <div class="body">
+        <div class="row-top"><span class="title">Wire up <span class="chip-mark">Stripe</span> webhook idempotency keys</span><span class="time">Yesterday</span></div>
+        <div class="preview">...validates events from <span class="chip-mark">stripe</span>-cli signatures, then dedups on the new event_id...</div>
+        <div class="row-chips">
+          <span class="chip"><svg viewBox="0 0 24 24" width="9" height="9" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7a2 2 0 0 1 2-2h5l2 2h7a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg> ~/Projects/payments-backend</span>
+          <span class="chip">feat/idempotency</span>
+          <span class="row-spacer"></span>
+          <button class="icon-btn" title="Show open command"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg></button>
+        </div>
+      </div>
+    </div>
+    <div class="row">
+      <div class="avatar av-teal">P</div>
+      <div class="body">
+        <div class="row-top"><span class="title">Migrate legacy charges.created handler off the v2 <span class="chip-mark">Stripe</span> API</span><span class="time">5d ago</span></div>
+        <div class="preview">Removed the deprecated balance_transaction expand and added a regression test.</div>
+        <div class="row-chips">
+          <span class="chip"><svg viewBox="0 0 24 24" width="9" height="9" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7a2 2 0 0 1 2-2h5l2 2h7a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg> ~/Projects/payments-backend</span>
+          <span class="chip">main</span>
+          <span class="chip-sub"><svg viewBox="0 0 24 24" width="9" height="9" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="7" width="16" height="12" rx="3"/><path d="M9 12h.01M15 12h.01"/></svg> 2</span>
+          <span class="row-spacer"></span>
+          <button class="icon-btn" title="Show open command"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg></button>
+        </div>
+      </div>
+    </div>
+    <div class="row">
+      <div class="avatar av-teal">P</div>
+      <div class="body">
+        <div class="row-top"><span class="title">Add retry-with-backoff around <span class="chip-mark">Stripe</span> payouts API</span><span class="time">Feb 22</span></div>
+        <div class="preview">Wrapped the existing helper in a small retry policy module shared with refunds.</div>
+        <div class="row-chips">
+          <span class="chip"><svg viewBox="0 0 24 24" width="9" height="9" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7a2 2 0 0 1 2-2h5l2 2h7a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg> ~/Projects/payments-backend</span>
+          <span class="chip">main</span>
+          <span class="row-spacer"></span>
+          <button class="icon-btn" title="Show open command"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg></button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- 3. CHAT VIEW (Dark) -->
+<div class="caption">3 · Chat view (dark, with timeline + subagent expander)</div>
+<div class="frame">
+  <div class="chat-header">
+    <button class="back-btn">
+      <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5"/><path d="m12 19-7-7 7-7"/></svg>
+      <span>Back</span>
+    </button>
+    <div style="flex:1; min-width:0;">
+      <div class="session-title">
+        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" style="color: var(--text-muted);"><path d="M3 7a2 2 0 0 1 2-2h5l2 2h7a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>
+        <span>awesome-todo-app</span>
+        <span class="badge-branch">main</span>
+        <span class="badge-sub"><svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="7" width="16" height="12" rx="3"/><path d="M9 12h.01M15 12h.01"/></svg> 3</span>
+      </div>
+      <div class="session-sub">
+        <span class="cwd">~/Projects/awesome-todo-app</span>
+        <span>·</span>
+        <span>38 msgs</span>
+      </div>
+    </div>
+    <div class="toolbar">
+      <button class="icon-btn" title="Open command"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg></button>
+      <button class="icon-btn" title="Export as HTML"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="m6 11 6 6 6-6"/><path d="M5 21h14"/></svg></button>
+      <button class="icon-btn" title="Screenshot"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h4l2-2h4l2 2h4a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2z"/><circle cx="12" cy="13" r="4"/></svg></button>
+      <button class="icon-btn" title="Theme"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 1 0 9.8 9.8z"/></svg></button>
+    </div>
+  </div>
+
+  <div class="timeline">
+    <div class="timeline-labels">
+      <span>Yesterday 13:08</span>
+      <span class="timeline-active">Today 14:21 <span class="count">22 / 38</span></span>
+      <span>Today 14:46</span>
+    </div>
+    <div class="track">
+      <div class="track-fill"></div>
+      <div class="day-mark" style="left: 0%;"></div>
+      <div class="day-mark" style="left: 37%;"></div>
+      <div class="track-handle"></div>
+    </div>
+  </div>
+
+  <div class="messages">
+    <div class="date-sep"><div class="line"></div><span class="label">May 12, 2026</span><div class="line"></div></div>
+
+    <div class="user-row">
+      <div class="user-bubble">
+        Refactor AuthService to use the new TokenStore. Keep backwards-compat for one release.
+        <div class="bubble-time">14:18</div>
+      </div>
+    </div>
+
+    <div class="msg-row">
+      <div class="av"><div class="a av-blue">C</div></div>
+      <div class="msg-body">
+        <div class="agent-line"><span class="agent-name">Claude</span><span class="agent-model">Opus 4.7</span></div>
+        <div class="bubble">
+          I'll start by reading the current AuthService and the new TokenStore interface to plan the migration.
+          <div class="tool">
+            <div class="tool-head">
+              <span class="tool-icon"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H7a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7z"/><path d="M14 2v5h5"/></svg></span>
+              <span class="file-path">~/awesome-todo-app/src/auth/service.ts</span>
+            </div>
+          </div>
+          <div class="tool">
+            <div class="tool-head">
+              <span class="tool-icon"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H7a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7z"/><path d="M14 2v5h5"/></svg></span>
+              <span class="file-path">~/awesome-todo-app/src/auth/token-store.ts</span>
+            </div>
+          </div>
+          <div class="bubble-time">14:19</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="msg-row">
+      <div class="av"><div class="a av-blue">C</div></div>
+      <div class="msg-body">
+        <div class="bubble">
+          Found three call sites. I'll delegate the consumer audit to a subagent so we don't pollute this transcript.
+          <div class="tool agent">
+            <div class="tool-head">
+              <span class="tool-icon accent"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="7" width="16" height="12" rx="3"/><path d="M9 12h.01M15 12h.01"/><path d="M12 7V4"/></svg></span>
+              <span class="type-tag">general-purpose</span>
+              <span class="tool-desc">Find all callers of AuthService.setSession</span>
+              <span style="margin-left:auto; color: var(--text-muted); font-size: 11px;">▸</span>
+            </div>
+          </div>
+          <div class="bubble-time">14:20</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="msg-row">
+      <div class="av"><div class="a av-blue">C</div></div>
+      <div class="msg-body">
+        <div class="bubble">
+          The subagent found 3 call sites (all in <code class="md-code">src/api/handlers/</code>). Applying the edit now.
+          <div class="tool">
+            <div class="tool-head">
+              <span class="tool-icon"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="m16.5 3.5 4 4L8 20l-4 1 1-4Z"/></svg></span>
+              <span class="file-path">~/awesome-todo-app/src/auth/service.ts</span>
+              <span style="margin-left:auto; color: var(--text-muted); font-size: 11px;">▾</span>
+            </div>
+            <div style="margin-top: 8px;">
+              <div class="diff-del">await this.session.set(userId, token)</div>
+              <div class="diff-add">await this.tokenStore.put({ userId, token, ttl: ONE_HOUR })</div>
+            </div>
+          </div>
+          <div class="tool">
+            <div class="tool-head">
+              <span class="tool-icon"><span style="font-family: var(--font-mono); font-weight: 700; color: var(--text-dim);">$</span></span>
+              <span style="font-size: 12px; color: var(--text-muted); flex:1;">Run the auth test suite</span>
+              <span style="color: var(--text-muted); font-size: 11px;">▾</span>
+            </div>
+            <pre class="bash-cmd">npm test -- src/auth</pre>
+          </div>
+          <div class="bubble-time">14:21</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="msg-row">
+      <div class="av"><div class="a av-blue">C</div></div>
+      <div class="msg-body">
+        <div class="bubble">
+          All 14 tests pass. The legacy <code class="md-code">setSession</code> helper has been removed; one shim re-export stays for the migration window.
+          <div class="bubble-time">14:21</div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- 4. CHAT VIEW (Dark) -->
+<div class="caption">4 · Chat view (dark)</div>
+<div class="frame dark" style="background: var(--bg);">
+  <div class="chat-header">
+    <button class="back-btn">
+      <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5"/><path d="m12 19-7-7 7-7"/></svg>
+      <span>Back</span>
+    </button>
+    <div style="flex:1; min-width:0;">
+      <div class="session-title">
+        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" style="color: var(--text-muted);"><path d="M3 7a2 2 0 0 1 2-2h5l2 2h7a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>
+        <span>metrics-dashboard</span>
+        <span class="badge-branch">incident/ingest-502</span>
+      </div>
+      <div class="session-sub">
+        <span class="cwd">~/Projects/metrics-dashboard</span>
+        <span>·</span>
+        <span>19 msgs</span>
+      </div>
+    </div>
+    <div class="toolbar">
+      <button class="icon-btn" title="Open command"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg></button>
+      <button class="icon-btn" title="Export as HTML"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="m6 11 6 6 6-6"/><path d="M5 21h14"/></svg></button>
+      <button class="icon-btn" title="Screenshot"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h4l2-2h4l2 2h4a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2z"/><circle cx="12" cy="13" r="4"/></svg></button>
+      <button class="icon-btn" title="Theme"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg></button>
+    </div>
+  </div>
+
+  <div class="timeline">
+    <div class="timeline-labels">
+      <span>Today 13:55</span>
+      <span class="timeline-active">Today 14:04 <span class="count">11 / 19</span></span>
+      <span>Today 14:46</span>
+    </div>
+    <div class="track">
+      <div class="track-fill" style="width: 58%;"></div>
+      <div class="day-mark" style="left: 0%;"></div>
+      <div class="track-handle" style="left: 58%;"></div>
+    </div>
+  </div>
+
+  <div class="messages">
+    <div class="date-sep"><div class="line"></div><span class="label">May 13, 2026</span><div class="line"></div></div>
+
+    <div class="user-row">
+      <div class="user-bubble">
+        We're getting a spike in 502s from the ingest pipeline since 13:30. Can you investigate?
+        <div class="bubble-time">13:55</div>
+      </div>
+    </div>
+
+    <div class="msg-row">
+      <div class="av"><div class="a av-mint">C</div></div>
+      <div class="msg-body">
+        <div class="agent-line"><span class="agent-name">Claude</span><span class="agent-model">Sonnet 4.6</span></div>
+        <div class="bubble">
+          Looking at the recent code changes around 13:30 first.
+          <div class="tool">
+            <div class="tool-head">
+              <span class="tool-icon"><span style="font-family: var(--font-mono); font-weight: 700; color: var(--text-dim);">$</span></span>
+              <span style="font-size: 12px; color: var(--text-muted); flex:1;">Show commits since the spike began</span>
+              <span style="color: var(--text-muted); font-size: 11px;">▾</span>
+            </div>
+            <pre class="bash-cmd">git log --since="13:00" --pretty=format:"%h %s" -- src/ingest/</pre>
+          </div>
+          <div class="bubble-time">13:56</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="msg-row">
+      <div class="av"><div class="a av-mint">C</div></div>
+      <div class="msg-body">
+        <div class="bubble">
+          Suspect commit found: a rate-limiter refactor at 13:24 changed connection lifecycle.
+          <div class="tool">
+            <div class="tool-head">
+              <span class="tool-icon"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H7a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7z"/><path d="M14 2v5h5"/></svg></span>
+              <span class="file-path">~/metrics-dashboard/src/ingest/rate-limiter.ts</span>
+            </div>
+          </div>
+          <div class="tool">
+            <div class="tool-head">
+              <span class="tool-icon"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="m16.5 3.5 4 4L8 20l-4 1 1-4Z"/></svg></span>
+              <span class="file-path">~/metrics-dashboard/src/ingest/rate-limiter.ts</span>
+              <span style="margin-left:auto; color: var(--text-muted); font-size: 11px;">▾</span>
+            </div>
+            <div style="margin-top: 8px;">
+              <div class="diff-del">const pool = await createPool({ max: 20 })</div>
+              <div class="diff-add">const pool = await createPool({ max: 20, idleTimeoutMs: 30_000 })</div>
+            </div>
+          </div>
+          <div class="bubble-time">14:04</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="user-row">
+      <div class="user-bubble">
+        Nice. Push the fix to staging and run the smoke test.
+        <div class="bubble-time">14:06</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+</body>
+</html>
