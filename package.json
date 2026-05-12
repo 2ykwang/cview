@@ -11,8 +11,8 @@
     "start": "node bin/cli.js",
     "build": "cd src/frontend && npm run build",
     "dev": "concurrently \"node src/server.js\" \"cd src/frontend && npm run dev\"",
-    "test": "node --test",
-    "postinstall": "cd src/frontend && npm install"
+    "lint:design": "npx --yes @google/design.md lint DESIGN.md",
+    "prepare": "cd src/frontend && npm install"
   },
   "dependencies": {
     "cors": "^2.8.5",
