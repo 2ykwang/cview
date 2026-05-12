@@ -1,6 +1,8 @@
 import { useState } from 'react';
 import { getAvatarColor } from './Avatar';
 import MarkdownRenderer from './MarkdownRenderer';
+import SubagentExpander from './SubagentExpander';
+import { color, radius, space, fontSize, fontWeight, motion, font } from '../styles/tokens';
 import {
   BotIcon,
   ClipboardIcon,
@@ -20,9 +22,7 @@ import {
 
 function Mention({ name }) {
   if (!name) return <strong>all</strong>;
-  return (
-    <strong style={{ color: getAvatarColor(name) }}>@{name}</strong>
-  );
+  return <strong style={{ color: getAvatarColor(name) }}>@{name}</strong>;
 }
 
 export function shortPath(p) {
@@ -30,64 +30,43 @@ export function shortPath(p) {
   return p.replace(/^\/Users\/[^/]+/, '~');
 }
 
-const mdWrap = { color: '#e2e8f0', fontSize: '14px', lineHeight: '1.65', wordBreak: 'break-word', overflowX: 'auto' };
-const noText = { color: '#4a4a6a', fontSize: '13px', fontStyle: 'italic' };
+const mdWrap = { color: color.text, fontSize: fontSize.md, lineHeight: 1.55, wordBreak: 'break-word', overflowX: 'auto' };
 
-export function ToolResult({ block }) {
-  const [open, setOpen] = useState(true);
-  const content = block.content;
-  const text = Array.isArray(content)
-    ? content.filter(b => b.type === 'text').map(b => b.text).join('\n')
-    : (typeof content === 'string' ? content : '');
-
-  if (!text) return null;
-  const preview = text.split('\n')[0].slice(0, 60);
-
-  return (
-      <div style={tc.result}>
-        <button style={tc.resultHeader} onClick={() => setOpen(o => !o)}>
-          <span style={tc.resultIcon}>#</span>
-          <span style={tc.resultPreview}>{preview}</span>
-          <span style={tc.toggle}>{open ? '▲' : '▼'}</span>
-        </button>
-      {open && <pre style={tc.resultBody}>{text.slice(0, 2000)}</pre>}
-    </div>
-  );
-}
-
-export function MessageContent({ content }) {
-  if (!content) return <span style={noText}>[no content]</span>;
-
-  if (typeof content === 'string') {
-    return <MarkdownRenderer style={mdWrap} text={content} />;
-  }
-
-  if (!Array.isArray(content)) return null;
-
-  const blocks = content.filter(b => b.type !== 'thinking');
-  if (blocks.length === 0) return null;
-
-  return (
-    <div>
-      {blocks.map((block, i) => {
-        if (block.type === 'text') {
-          return block.text
-            ? <MarkdownRenderer key={i} style={mdWrap} text={block.text} />
-            : null;
-        }
-        if (block.type === 'tool_use') return <ToolCard key={i} block={block} />;
-        if (block.type === 'tool_result') return <ToolResult key={i} block={block} />;
-        return null;
-      })}
-    </div>
-  );
-}
-
-export default function ToolCard({ block }) {
+export default function ToolCard({ block, agentContext }) {
   const [open, setOpen] = useState(true);
   const { name, input = {} } = block;
 
+  if (name === 'Agent' || name === 'Task') {
+    const desc = input.description || '';
+    const subagentType = input.subagent_type || input.name || null;
+    const matched = agentContext?.matchedSubagents?.[block.id] || null;
+    if (agentContext?.project && agentContext?.masterSessionId) {
+      return (
+        <SubagentExpander
+          project={agentContext.project}
+          masterSessionId={agentContext.masterSessionId}
+          agentId={matched?.agentId || null}
+          agentType={matched?.agentType || subagentType}
+          description={matched?.description || desc}
+        />
+      );
+    }
+    // Fallback: no master/project context (e.g., transcript view) — render a compact info card.
+    return (
+      <div style={tc.agent}>
+        <span style={tc.agentIcon}><BotIcon size={14} /></span>
+        <div style={tc.agentInfo}>
+          <div>
+            <strong>{subagentType || 'Agent'}</strong>
+            {desc ? ` · ${desc}` : ''}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   if (name === 'SendMessage') {
+    const recipient = input.to || input.recipient;
     const msgType = input.type || '';
     const isShutdown = msgType.includes('shutdown');
     const isBroadcast = msgType === 'broadcast';
@@ -97,11 +76,11 @@ export default function ToolCard({ block }) {
           <span style={tc.sendIcon}>
             {isShutdown ? <PowerIcon size={14} /> : isBroadcast ? <MegaphoneIcon size={14} /> : <SendIcon size={14} />}
           </span>
-          <span style={tc.sendTo}>→ <Mention name={input.recipient} /></span>
+          <span style={tc.sendTo}>→ <Mention name={recipient} /></span>
           {input.summary && <span style={tc.sendSummary}>{input.summary}</span>}
         </div>
-        {input.content && (
-          <MarkdownRenderer style={{ ...tc.sendBody, ...mdWrap }} text={input.content} />
+        {(input.message || input.content) && (
+          <MarkdownRenderer style={{ ...tc.sendBody, ...mdWrap }} text={input.message || input.content} />
         )}
       </div>
     );
@@ -113,7 +92,7 @@ export default function ToolCard({ block }) {
         <div style={tc.bashHeader}>
           <span style={tc.bashIcon}>$</span>
           {input.description && <span style={tc.bashDesc}>{input.description}</span>}
-          <button style={tc.toggle} onClick={() => setOpen(o => !o)}>{open ? '▲' : '▼'}</button>
+          <button style={tc.toggle} onClick={() => setOpen(o => !o)} title={open ? 'Collapse' : 'Expand'}>{open ? '▾' : '▸'}</button>
         </div>
         {open && <pre style={tc.bashCmd}>{input.command}</pre>}
         {!open && <div style={tc.bashPreview}>{(input.command || '').split('\n')[0].slice(0, 80)}</div>}
@@ -139,7 +118,7 @@ export default function ToolCard({ block }) {
           <span style={tc.fileIcon}><PencilIcon size={14} /></span>
           <span style={tc.filePath}>{shortPath(input.file_path)}</span>
           {input.content && (
-            <button style={tc.toggle} onClick={() => setOpen(o => !o)}>{open ? '▲' : '▼'}</button>
+            <button style={tc.toggle} onClick={() => setOpen(o => !o)} title={open ? 'Collapse' : 'Expand'}>{open ? '▾' : '▸'}</button>
           )}
         </div>
         {open && <pre style={tc.fileBody}>{(input.content || '').slice(0, 500)}</pre>}
@@ -153,7 +132,7 @@ export default function ToolCard({ block }) {
         <div style={tc.fileHeader}>
           <span style={tc.fileIcon}><EditIcon size={14} /></span>
           <span style={tc.filePath}>{shortPath(input.file_path)}</span>
-          <button style={tc.toggle} onClick={() => setOpen(o => !o)}>{open ? '▲' : '▼'}</button>
+          <button style={tc.toggle} onClick={() => setOpen(o => !o)} title={open ? 'Collapse' : 'Expand'}>{open ? '▾' : '▸'}</button>
         </div>
         {open && (
           <div style={{ marginTop: 8, width: '100%' }}>
@@ -161,18 +140,6 @@ export default function ToolCard({ block }) {
             <div style={tc.diffAdd}>{(input.new_string || '').slice(0, 200)}</div>
           </div>
         )}
-      </div>
-    );
-  }
-
-  if (name === 'Task') {
-    return (
-      <div style={tc.task}>
-        <span style={tc.taskIcon}><BotIcon size={14} /></span>
-        <div style={tc.taskInfo}>
-          <div><strong>{input.name || input.subagent_type}</strong>{input.team_name ? ` · ${input.team_name}` : ''}</div>
-          {input.description && <div style={tc.taskDesc}>{input.description}</div>}
-        </div>
       </div>
     );
   }
@@ -190,12 +157,12 @@ export default function ToolCard({ block }) {
   }
 
   if (name === 'TaskUpdate') {
-    const statusColor = { completed: '#10B981', in_progress: '#F59E0B', deleted: '#EF4444' }[input.status] || '#94A3B8';
+    const statusColor = { completed: color.success, in_progress: color.warning, deleted: color.danger }[input.status] || color.textDim;
     return (
       <div style={tc.task}>
         <span style={tc.taskIcon}><RefreshIcon size={14} /></span>
         <div>Task <strong>#{input.taskId}</strong> →{' '}
-          <span style={{ color: statusColor, fontWeight: 600 }}>{input.status || input.owner || 'updated'}</span>
+          <span style={{ color: statusColor, fontWeight: fontWeight.semibold }}>{input.status || input.owner || 'updated'}</span>
         </div>
       </div>
     );
@@ -232,7 +199,7 @@ export default function ToolCard({ block }) {
   }
 
   return (
-    <span style={tc.badge}>
+    <span style={tc.badge} title={name}>
       <WrenchIcon size={12} />
       {name}
     </span>
@@ -240,35 +207,150 @@ export default function ToolCard({ block }) {
 }
 
 const tc = {
-  sendMsg: { margin: '4px 0', padding: '8px 12px', background: '#131f2b', border: '1px solid #293340', borderRadius: '8px', borderLeft: '3px solid #5ab3ef' },
-  sendMsgHeader: { display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' },
-  sendIcon: { color: '#aab2ba', display: 'inline-flex', alignItems: 'center' },
-  sendTo: { fontSize: '13px', color: '#6c7883' },
-  sendSummary: { fontSize: '12px', color: '#5ab3ef', background: '#1c2d3e', padding: '1px 8px', borderRadius: '10px' },
-  sendBody: { marginTop: '6px', fontSize: '13px', color: '#e8e8e8', lineHeight: '1.5' },
-  bash: { margin: '4px 0', padding: '8px 12px', background: '#131f2b', border: '1px solid #293340', borderRadius: '8px', borderLeft: '3px solid #10B981' },
-  bashHeader: { display: 'flex', alignItems: 'center', gap: '8px' },
-  bashIcon: { color: '#10B981', fontWeight: '700', fontFamily: 'monospace', fontSize: '14px' },
-  bashDesc: { fontSize: '12px', color: '#6c7883', flex: 1 },
-  bashPreview: { marginTop: '4px', fontSize: '12px', color: '#6c7883', fontFamily: 'monospace', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' },
-  bashCmd: { margin: '8px 0 0', padding: '8px', background: '#0d1923', borderRadius: '4px', fontSize: '12px', color: '#10B981', fontFamily: 'monospace', whiteSpace: 'pre-wrap', wordBreak: 'break-all', overflowX: 'auto' },
-  fileCard: { margin: '4px 0', padding: '6px 10px', background: '#1c2733', border: '1px solid #293340', borderRadius: '6px' },
-  fileHeader: { display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' },
-  fileIcon: { color: '#9aa4ae', display: 'inline-flex', alignItems: 'center' },
-  filePath: { fontSize: '12px', color: '#5ab3ef', fontFamily: 'monospace', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
-  fileBody: { margin: '8px 0 0', padding: '8px', width: '100%', background: '#0d1923', borderRadius: '4px', fontSize: '12px', color: '#10B981', fontFamily: 'monospace', whiteSpace: 'pre-wrap', wordBreak: 'break-all', overflowX: 'auto' },
-  code: { fontSize: '12px', color: '#F59E0B', fontFamily: 'monospace', background: '#1a1500', padding: '1px 6px', borderRadius: '4px' },
-  diffDel: { padding: '4px 8px', background: '#2d1515', color: '#f87171', fontSize: '12px', fontFamily: 'monospace', whiteSpace: 'pre-wrap', borderRadius: '4px', marginBottom: '4px' },
-  diffAdd: { padding: '4px 8px', background: '#0f2d1a', color: '#86efac', fontSize: '12px', fontFamily: 'monospace', whiteSpace: 'pre-wrap', borderRadius: '4px' },
-  task: { display: 'flex', alignItems: 'flex-start', gap: '8px', margin: '4px 0', padding: '8px 10px', background: '#1c2733', border: '1px solid #293340', borderRadius: '6px' },
-  taskIcon: { color: '#9aa4ae', display: 'inline-flex', alignItems: 'center', flexShrink: 0 },
-  taskInfo: { flex: 1, fontSize: '13px', color: '#e8e8e8' },
-  taskDesc: { fontSize: '12px', color: '#6c7883', marginTop: '2px' },
-  result: { margin: '4px 0', border: '1px solid #293340', borderRadius: '6px', overflow: 'hidden' },
-  resultHeader: { display: 'flex', alignItems: 'center', gap: '8px', width: '100%', padding: '6px 10px', background: '#17212b', border: 'none', cursor: 'pointer', textAlign: 'left' },
-  resultIcon: { color: '#6c7883', fontSize: '12px' },
-  resultPreview: { flex: 1, fontSize: '12px', color: '#6c7883', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
-  resultBody: { margin: 0, padding: '8px 12px', background: '#0d1923', fontSize: '12px', color: '#aab2ba', fontFamily: 'monospace', whiteSpace: 'pre-wrap', wordBreak: 'break-all', maxHeight: '300px', overflowY: 'auto' },
-  toggle: { background: 'transparent', border: 'none', color: '#6c7883', cursor: 'pointer', fontSize: '11px', padding: '0 4px', flexShrink: 0 },
-  badge: { display: 'inline-flex', alignItems: 'center', gap: '6px', margin: '2px 4px 2px 0', padding: '2px 8px', borderRadius: '10px', background: '#1c2733', color: '#5ab3ef', fontSize: '12px' },
+  agent: {
+    margin: '4px 0',
+    padding: `${space.px4}px ${space.px5}px`,
+    background: color.surface,
+    border: `1px solid ${color.border}`,
+    borderLeft: `3px solid ${color.toolAgent}`,
+    borderRadius: radius.md,
+    display: 'flex', alignItems: 'flex-start', gap: space.px4,
+  },
+  agentIcon: { color: color.toolAgent, display: 'inline-flex', alignItems: 'center', flexShrink: 0, marginTop: 2 },
+  agentInfo: { flex: 1, fontSize: fontSize.base, color: color.text },
+
+  sendMsg: {
+    margin: '4px 0',
+    padding: `${space.px4}px ${space.px5}px`,
+    background: color.surface,
+    border: `1px solid ${color.border}`,
+    borderLeft: `3px solid ${color.toolSend}`,
+    borderRadius: radius.md,
+  },
+  sendMsgHeader: { display: 'flex', alignItems: 'center', gap: space.px4, flexWrap: 'wrap' },
+  sendIcon: { color: color.textDim, display: 'inline-flex', alignItems: 'center' },
+  sendTo: { fontSize: fontSize.base, color: color.textMuted },
+  sendSummary: {
+    fontSize: fontSize.sm,
+    color: color.accent,
+    background: color.accentBg,
+    padding: '1px 8px',
+    borderRadius: radius.pill,
+  },
+  sendBody: { marginTop: 6, fontSize: fontSize.base, color: color.text, lineHeight: 1.5 },
+
+  bash: {
+    margin: '4px 0',
+    padding: `${space.px4}px ${space.px5}px`,
+    background: color.surface,
+    border: `1px solid ${color.border}`,
+    borderLeft: `3px solid ${color.toolBash}`,
+    borderRadius: radius.md,
+  },
+  bashHeader: { display: 'flex', alignItems: 'center', gap: space.px4 },
+  bashIcon: { color: color.textDim, fontWeight: fontWeight.bold, fontFamily: font.mono, fontSize: fontSize.md },
+  bashDesc: { fontSize: fontSize.sm, color: color.textMuted, flex: 1 },
+  bashPreview: { marginTop: 4, fontSize: fontSize.sm, color: color.textMuted, fontFamily: font.mono, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' },
+  bashCmd: {
+    margin: '8px 0 0',
+    padding: '8px 10px',
+    background: color.codeBg,
+    borderRadius: radius.sm,
+    fontSize: fontSize.sm,
+    color: color.text,
+    fontFamily: font.mono,
+    whiteSpace: 'pre-wrap',
+    wordBreak: 'break-all',
+    overflowX: 'auto',
+    border: `1px solid ${color.border}`,
+  },
+
+  fileCard: {
+    margin: '4px 0',
+    padding: '6px 10px',
+    background: color.surface,
+    border: `1px solid ${color.border}`,
+    borderLeft: `3px solid ${color.toolFile}`,
+    borderRadius: radius.md,
+  },
+  fileHeader: { display: 'flex', alignItems: 'center', gap: space.px3, flexWrap: 'wrap' },
+  fileIcon: { color: color.textDim, display: 'inline-flex', alignItems: 'center' },
+  filePath: { fontSize: fontSize.sm, color: color.accent, fontFamily: font.mono, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
+  fileBody: {
+    margin: '8px 0 0',
+    padding: '8px 10px',
+    width: '100%',
+    background: color.codeBg,
+    borderRadius: radius.sm,
+    fontSize: fontSize.sm,
+    color: color.text,
+    fontFamily: font.mono,
+    whiteSpace: 'pre-wrap',
+    wordBreak: 'break-all',
+    overflowX: 'auto',
+    border: `1px solid ${color.border}`,
+  },
+  code: {
+    fontSize: fontSize.sm,
+    color: color.codeFg,
+    fontFamily: font.mono,
+    background: color.codeBg,
+    border: `1px solid ${color.border}`,
+    padding: '1px 6px',
+    borderRadius: radius.xs,
+  },
+  diffDel: {
+    padding: '4px 8px',
+    background: color.diffDelBg,
+    color: color.diffDelFg,
+    fontSize: fontSize.sm,
+    fontFamily: font.mono,
+    whiteSpace: 'pre-wrap',
+    borderRadius: radius.xs,
+    marginBottom: 4,
+  },
+  diffAdd: {
+    padding: '4px 8px',
+    background: color.diffAddBg,
+    color: color.diffAddFg,
+    fontSize: fontSize.sm,
+    fontFamily: font.mono,
+    whiteSpace: 'pre-wrap',
+    borderRadius: radius.xs,
+  },
+  task: {
+    display: 'flex',
+    alignItems: 'flex-start',
+    gap: space.px4,
+    margin: '4px 0',
+    padding: `${space.px4}px ${space.px5}px`,
+    background: color.surface,
+    border: `1px solid ${color.border}`,
+    borderRadius: radius.md,
+  },
+  taskIcon: { color: color.textDim, display: 'inline-flex', alignItems: 'center', flexShrink: 0 },
+  taskInfo: { flex: 1, fontSize: fontSize.base, color: color.text },
+  taskDesc: { fontSize: fontSize.sm, color: color.textMuted, marginTop: 2 },
+  toggle: {
+    background: 'transparent',
+    border: 'none',
+    color: color.textMuted,
+    cursor: 'pointer',
+    fontSize: fontSize.xs,
+    padding: '0 4px',
+    flexShrink: 0,
+    transition: `color ${motion.fast}`,
+  },
+  badge: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: space.px3,
+    margin: '2px 4px 2px 0',
+    padding: '2px 8px',
+    borderRadius: radius.pill,
+    background: color.surface,
+    color: color.accent,
+    fontSize: fontSize.sm,
+    border: `1px solid ${color.border}`,
+  },
 };

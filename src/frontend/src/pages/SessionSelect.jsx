@@ -1,8 +1,13 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import TeamChatItem from '../components/TeamChatItem';
+import { BotIcon, SearchIcon, FolderIcon } from '../components/Icon';
+import OpenSessionCommand from '../components/OpenSessionCommand';
+import ThemeToggle from '../components/ThemeToggle';
+import { color, radius, space, fontSize, fontWeight, motion, font } from '../styles/tokens';
 
-const AVATAR_COLORS = ['#6366F1', '#8B5CF6', '#EC4899', '#F59E0B', '#10B981', '#F87171'];
+const AVATAR_TINTS = [
+  '#3182f6', '#00C2C8', '#6F7BFF', '#4ECCB5', '#FFB940', '#FF7676',
+];
 const PAGE_SIZE = 40;
 
 function renderHighlightedText(text, query) {
@@ -32,7 +37,7 @@ function renderHighlightedText(text, query) {
 function avatarColor(key) {
   let hash = 0;
   for (let i = 0; i < key.length; i++) hash = (hash * 31 + key.charCodeAt(i)) & 0xffff;
-  return AVATAR_COLORS[hash % AVATAR_COLORS.length];
+  return AVATAR_TINTS[hash % AVATAR_TINTS.length];
 }
 
 function relativeTime(mtime) {
@@ -46,10 +51,14 @@ function relativeTime(mtime) {
   return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 }
 
+function shortenPath(p) {
+  if (!p) return '';
+  return p.replace(/^\/Users\/[^/]+/, '~');
+}
+
 export default function SessionSelect() {
   const navigate = useNavigate();
   const [sessions, setSessions] = useState([]);
-  const [teams, setTeams] = useState([]);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState(null);
@@ -77,7 +86,6 @@ export default function SessionSelect() {
       const params = new URLSearchParams({
         offset: String(offset),
         limit: String(PAGE_SIZE),
-        excludeTeamSessions: '1',
       });
       if (debouncedQuery) params.set('q', debouncedQuery);
 
@@ -86,9 +94,7 @@ export default function SessionSelect() {
       const data = await response.json();
       if (!isCurrentRequest()) return;
 
-      const items = Array.isArray(data)
-        ? data.filter(s => !s.teamName)
-        : (Array.isArray(data.items) ? data.items : []);
+      const items = Array.isArray(data) ? data : (Array.isArray(data.items) ? data.items : []);
       const pagination = Array.isArray(data) ? null : data.pagination;
 
       setSessions(prev => {
@@ -119,13 +125,6 @@ export default function SessionSelect() {
       else setLoadingMore(false);
     }
   }, [debouncedQuery]);
-
-  useEffect(() => {
-    fetch('/api/teams')
-      .then(r => r.json())
-      .then(data => setTeams(data))
-      .catch(() => {});
-  }, []);
 
   useEffect(() => {
     const timer = setTimeout(() => setDebouncedQuery(query.trim()), 250);
@@ -170,55 +169,46 @@ export default function SessionSelect() {
     navigate(`/session?${params.toString()}`);
   };
 
-  const openTeam = (teamName) => {
-    navigate(`/team?name=${encodeURIComponent(teamName)}`);
-  };
-
   return (
     <div style={styles.container}>
       <div style={styles.header}>
-        <span style={styles.logo}>Claude Chatview</span>
+        <span style={styles.logo}>cview</span>
+        <span style={styles.tagline}>Claude Code session viewer</span>
+        <span style={styles.headerSpacer} />
+        <ThemeToggle />
       </div>
       <div style={styles.searchWrap}>
-        <input
-          style={styles.search}
-          placeholder="Search sessions..."
-          value={query}
-          onChange={e => setQuery(e.target.value)}
-        />
+        <div style={styles.searchInner}>
+          <span style={styles.searchIcon}><SearchIcon size={13} /></span>
+          <input
+            style={styles.search}
+            placeholder="Search sessions, project, or content..."
+            value={query}
+            onChange={e => setQuery(e.target.value)}
+          />
+        </div>
       </div>
       <div style={styles.list} ref={listRef}>
-        {teams.length > 0 && (
-          <>
-            <div style={styles.sectionLabel}>Team Chats</div>
-            {teams.map(team => (
-              <TeamChatItem
-                key={team.teamName}
-                team={team}
-                onClick={() => openTeam(team.teamName)}
-                isHovered={hovered === `team:${team.teamName}`}
-                onMouseEnter={() => setHovered(`team:${team.teamName}`)}
-                onMouseLeave={() => setHovered(null)}
-              />
-            ))}
-            <div style={styles.sectionLabel}>Individual Sessions</div>
-          </>
-        )}
         {loading && <div style={styles.hint}>Loading...</div>}
         {error && <div style={styles.hint}>Error: {error}</div>}
         {!loading && sessions.length === 0 && !error && <div style={styles.hint}>No sessions</div>}
         {sessions.map(s => {
           const previewText = (query && s.matchSnippet) ? s.matchSnippet : (s.preview || s.projectDisplay);
-          const colorKey = s.agentName || s.projectDisplay || s.id;
+          const colorKey = s.projectDisplay || s.id;
           const bg = avatarColor(colorKey);
-          const initial = (s.agentName || s.projectDisplay || '?')[0].toUpperCase();
+          const initial = (s.projectDisplay || '?')[0].toUpperCase();
           const itemKey = `${s.project}/${s.id}`;
           const isHovered = hovered === itemKey;
+          const isOrphan = s.kind === 'orphan';
+          const cwdLabel = s.cwd ? shortenPath(s.cwd) : null;
           return (
-            <button
+            <div
               key={itemKey}
+              role="button"
+              tabIndex={0}
               style={{ ...styles.item, ...(isHovered ? styles.itemHover : {}) }}
               onClick={() => openSession(s)}
+              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openSession(s); } }}
               onMouseEnter={() => setHovered(itemKey)}
               onMouseLeave={() => setHovered(null)}
             >
@@ -228,9 +218,29 @@ export default function SessionSelect() {
                   <span style={styles.title}>{renderHighlightedText(s.title, query)}</span>
                   <span style={styles.time}>{relativeTime(s.mtime)}</span>
                 </div>
-                <div style={styles.preview}>{renderHighlightedText(previewText, query)}</div>
+                <div style={styles.row2}>
+                  <span style={styles.preview}>{renderHighlightedText(previewText, query)}</span>
+                </div>
+                <div style={styles.row3}>
+                  {cwdLabel && (
+                    <span style={styles.cwdChip} title={s.cwd}>
+                      <FolderIcon size={10} />
+                      <span style={styles.cwdText}>{cwdLabel}</span>
+                    </span>
+                  )}
+                  {s.gitBranch && <span style={styles.branchChip}>{s.gitBranch}</span>}
+                  {isOrphan && <span style={styles.orphanChip}>orphan</span>}
+                  {s.subagentCount > 0 && (
+                    <span style={styles.subChip} title={`${s.subagentCount} subagent run${s.subagentCount > 1 ? 's' : ''}`}>
+                      <BotIcon size={10} />
+                      {s.subagentCount}
+                    </span>
+                  )}
+                  <span style={styles.actionsSpacer} />
+                  <OpenSessionCommand cwd={s.cwd} sessionId={s.id} />
+                </div>
               </div>
-            </button>
+            </div>
           );
         })}
         {!loading && hasMore && <div ref={sentinelRef} style={styles.sentinel} />}
@@ -241,22 +251,132 @@ export default function SessionSelect() {
 }
 
 const styles = {
-  container: { display: 'flex', flexDirection: 'column', height: '100vh', background: '#17212b', color: '#e8e8e8' },
-  header: { padding: '16px 20px', borderBottom: '1px solid #293340', flexShrink: 0 },
-  logo: { fontSize: '18px', fontWeight: '700', color: '#5ab3ef' },
-  searchWrap: { padding: '10px 16px', borderBottom: '1px solid #293340', flexShrink: 0 },
-  search: { width: '100%', padding: '8px 14px', borderRadius: '20px', border: '1px solid #293340', background: '#1c2733', color: '#e8e8e8', fontSize: '14px', outline: 'none', boxSizing: 'border-box' },
+  container: { display: 'flex', flexDirection: 'column', height: '100vh', background: color.bg, color: color.text },
+  header: {
+    padding: '14px 20px',
+    borderBottom: `1px solid ${color.border}`,
+    flexShrink: 0,
+    display: 'flex',
+    alignItems: 'center',
+    gap: space.px5,
+    background: color.surface,
+  },
+  logo: { fontSize: fontSize.xl, fontWeight: fontWeight.bold, color: color.accent, letterSpacing: '-0.01em' },
+  tagline: { fontSize: fontSize.sm, color: color.textMuted },
+  headerSpacer: { flex: 1 },
+  searchWrap: { padding: '10px 16px', borderBottom: `1px solid ${color.border}`, flexShrink: 0, background: color.surface },
+  searchInner: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: space.px4,
+    padding: '8px 14px',
+    borderRadius: radius.lg,
+    border: `1px solid ${color.border}`,
+    background: color.bgAlt,
+    transition: `border-color ${motion.fast}, background ${motion.fast}`,
+  },
+  searchIcon: { color: color.textMuted, display: 'inline-flex', alignItems: 'center' },
+  search: {
+    flex: 1,
+    border: 'none',
+    background: 'transparent',
+    color: color.text,
+    fontSize: fontSize.md,
+    outline: 'none',
+    fontFamily: 'inherit',
+  },
   list: { flex: 1, overflowY: 'auto' },
-  item: { display: 'flex', alignItems: 'center', gap: '12px', width: '100%', padding: '12px 16px', border: 'none', borderBottom: '1px solid #1c2733', background: 'transparent', cursor: 'pointer', textAlign: 'left', transition: 'background 0.1s' },
-  itemHover: { background: '#1f2936' },
-  avatar: { width: '48px', height: '48px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontSize: '18px', fontWeight: '700', flexShrink: 0 },
+  item: {
+    display: 'flex',
+    alignItems: 'flex-start',
+    gap: space.px5,
+    width: '100%',
+    padding: '12px 16px',
+    border: 'none',
+    borderBottom: `1px solid ${color.border}`,
+    background: 'transparent',
+    cursor: 'pointer',
+    textAlign: 'left',
+    transition: `background ${motion.fast}`,
+    fontFamily: 'inherit',
+    outline: 'none',
+  },
+  itemHover: { background: color.bgAlt },
+  avatar: {
+    width: 40,
+    height: 40,
+    borderRadius: '50%',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    color: '#ffffff',
+    fontSize: fontSize.md,
+    fontWeight: fontWeight.bold,
+    flexShrink: 0,
+    marginTop: 2,
+  },
   body: { flex: 1, minWidth: 0 },
-  row1: { display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '4px' },
-  title: { fontSize: '15px', fontWeight: '600', color: '#e8e8e8', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 },
-  time: { fontSize: '12px', color: '#6c7883', marginLeft: '8px', flexShrink: 0 },
-  preview: { fontSize: '13px', color: '#6c7883', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
-  mark: { background: '#facc15', color: '#111827', borderRadius: '3px', padding: '0 1px' },
-  hint: { padding: '40px', textAlign: 'center', color: '#6c7883', fontSize: '14px' },
-  sectionLabel: { padding: '8px 16px 4px', fontSize: '11px', fontWeight: '600', color: '#6c7883', textTransform: 'uppercase', letterSpacing: '0.08em' },
-  sentinel: { height: '1px' },
+  row1: { display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 2, gap: space.px4 },
+  row2: { marginBottom: 4 },
+  row3: { display: 'flex', alignItems: 'center', gap: 5, flexWrap: 'wrap' },
+  title: { fontSize: fontSize.md, fontWeight: fontWeight.semibold, color: color.text, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1, minWidth: 0 },
+  time: { fontSize: fontSize.xs, color: color.textMuted, flexShrink: 0 },
+  preview: { fontSize: fontSize.base, color: color.textMuted, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'block' },
+  cwdChip: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: 3,
+    fontSize: 10,
+    lineHeight: 1.4,
+    color: color.textMuted,
+    fontFamily: font.mono,
+    background: color.bgAlt,
+    border: `1px solid ${color.border}`,
+    padding: '0 6px',
+    borderRadius: radius.xs,
+    maxWidth: 280,
+    minWidth: 0,
+  },
+  cwdText: { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
+  branchChip: {
+    fontSize: 10,
+    lineHeight: 1.4,
+    color: color.textMuted,
+    background: color.bgAlt,
+    border: `1px solid ${color.border}`,
+    padding: '0 6px',
+    borderRadius: radius.xs,
+    fontFamily: font.mono,
+    maxWidth: 140,
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap',
+  },
+  orphanChip: {
+    fontSize: 10,
+    lineHeight: 1.4,
+    color: color.warning,
+    background: 'transparent',
+    border: `1px solid ${color.warning}`,
+    padding: '0 6px',
+    borderRadius: radius.pill,
+    fontWeight: fontWeight.medium,
+  },
+  subChip: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: 2,
+    fontSize: 10,
+    lineHeight: 1.4,
+    fontWeight: fontWeight.semibold,
+    color: color.accent,
+    background: color.accentBg,
+    border: `1px solid ${color.accent}`,
+    padding: '0 6px',
+    borderRadius: radius.pill,
+  },
+  actionsSpacer: { flex: 1 },
+  mark: { background: color.accentBg, color: color.accent, borderRadius: 3, padding: '0 2px', fontWeight: fontWeight.semibold },
+  hint: { padding: 40, textAlign: 'center', color: color.textMuted, fontSize: fontSize.md },
+  sentinel: { height: 1 },
 };

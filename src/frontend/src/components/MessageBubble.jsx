@@ -2,30 +2,24 @@ import Avatar from './Avatar';
 import ThinkingBlock from './ThinkingBlock';
 import ToolCard from './ToolCard';
 import MarkdownRenderer from './MarkdownRenderer';
+import TeammateMessage from './TeammateMessage';
 import { fmtTime, fmtModel, hasRenderableAssistantContent } from '../utils/parseSession';
+import { color, radius, space, fontSize, fontWeight } from '../styles/tokens';
 
-function AssistantContent({ content }) {
+function AssistantContent({ content, agentContext }) {
   if (!content) return null;
-
-  if (typeof content === 'string') {
-    return <MarkdownRenderer style={s.mdWrap} text={content} />;
-  }
-
+  if (typeof content === 'string') return <MarkdownRenderer style={s.md} text={content} />;
   if (!Array.isArray(content)) return null;
 
-  const blocks = content.filter(b => b.type !== 'thinking');
+  const blocks = content.filter(b => b.type !== 'thinking' || b.thinking);
   if (blocks.length === 0) return null;
 
   return (
     <div>
       {blocks.map((block, i) => {
         if (block.type === 'thinking') return <ThinkingBlock key={i} thinking={block.thinking} />;
-        if (block.type === 'text') {
-          return block.text
-            ? <MarkdownRenderer key={i} style={s.mdWrap} text={block.text} />
-            : null;
-        }
-        if (block.type === 'tool_use') return <ToolCard key={i} block={block} />;
+        if (block.type === 'text') return block.text ? <MarkdownRenderer key={i} style={s.md} text={block.text} /> : null;
+        if (block.type === 'tool_use') return <ToolCard key={i} block={block} agentContext={agentContext} />;
         if (block.type === 'tool_result') return null;
         return null;
       })}
@@ -33,19 +27,61 @@ function AssistantContent({ content }) {
   );
 }
 
-// isFirst/isLast are used by the parent (Messenger.jsx) for consecutive same-sender grouping
-export default function MessageBubble({ record, isFirst = true, isLast = true }) {
-  const { type, message, timestamp, _plainText } = record;
+function UserContent({ content }) {
+  if (typeof content === 'string') return <MarkdownRenderer style={s.userMd} text={content} />;
+  if (Array.isArray(content)) {
+    const text = content.filter(b => b?.type === 'text').map(b => b.text).join('\n');
+    if (text.trim()) return <MarkdownRenderer style={s.userMd} text={text} />;
+  }
+  return null;
+}
+
+export default function MessageBubble({ record, isFirst = true, isLast = true, agentContext }) {
+  const { type, message, timestamp, attributionAgent } = record;
   const agentName = record.agentName || 'Claude';
 
   if (type === 'user') {
-    if (!_plainText) return null;
+    const teammateMessages = record._teammateMessages || [];
+    const plainText = record._plainText ?? null;
+    const hasTeammate = teammateMessages.length > 0;
+    const hasPlain = plainText !== null
+      ? Boolean(plainText.trim())
+      : (typeof message?.content === 'string'
+          ? Boolean(message.content.trim())
+          : Array.isArray(message?.content) && message.content.some(b => b?.type === 'text' && b.text?.trim()));
+
+    if (hasTeammate) {
+      return (
+        <div style={{ ...s.teammateRow, marginBottom: isLast ? 16 : 6 }}>
+          {teammateMessages.map((tm, i) => (
+            <TeammateMessage
+              key={i}
+              teammateId={tm.teammateId}
+              color={tm.color}
+              summary={tm.summary}
+              body={tm.body}
+            />
+          ))}
+          {hasPlain && (
+            <div style={s.userRowInline}>
+              <div className={isLast ? 'bubble-out' : ''} style={s.userBubble}>
+                <MarkdownRenderer style={s.userMd} text={plainText || ''} />
+                <div style={s.userBubbleMeta}>
+                  <span style={s.userBubbleTime}>{fmtTime(timestamp)}</span>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      );
+    }
+
     return (
       <div style={{ ...s.userRow, marginBottom: isLast ? 16 : 3 }}>
         <div className={isLast ? 'bubble-out' : ''} style={s.userBubble}>
-          <MarkdownRenderer style={s.mdWrap} text={_plainText} />
-          <div style={s.bubbleMeta}>
-            <span style={s.bubbleTime}>{fmtTime(timestamp)}</span>
+          <UserContent content={plainText !== null ? plainText : message?.content} />
+          <div style={s.userBubbleMeta}>
+            <span style={s.userBubbleTime}>{fmtTime(timestamp)}</span>
           </div>
         </div>
       </div>
@@ -63,11 +99,12 @@ export default function MessageBubble({ record, isFirst = true, isLast = true })
           {isFirst && (
             <div style={s.agentNameRow}>
               <span style={s.agentName}>{agentName}</span>
-              {message?.model && <span style={s.modelTag}>({fmtModel(message.model)})</span>}
+              {message?.model && <span style={s.modelTag}>{fmtModel(message.model)}</span>}
+              {attributionAgent && <span style={s.attributionTag}>via {attributionAgent}</span>}
             </div>
           )}
           <div className={isLast ? 'bubble-in' : ''} style={s.bubble}>
-            <AssistantContent content={message?.content} />
+            <AssistantContent content={message?.content} agentContext={agentContext} />
             <div style={s.bubbleMeta}>
               <span style={s.bubbleTime}>{fmtTime(timestamp)}</span>
             </div>
@@ -81,17 +118,47 @@ export default function MessageBubble({ record, isFirst = true, isLast = true })
 }
 
 const s = {
-  msgRow: { display: 'flex', gap: '8px', alignItems: 'flex-start' },
+  msgRow: { display: 'flex', gap: space.px4, alignItems: 'flex-start' },
   avatarCol: { flexShrink: 0, width: 32 },
   avatarSpacer: { width: 32, height: 32 },
   msgBody: { flex: 1, minWidth: 0, maxWidth: '75%' },
-  agentNameRow: { display: 'flex', alignItems: 'baseline', gap: '5px', marginBottom: '3px', paddingLeft: '2px' },
-  agentName: { fontSize: '13px', fontWeight: '600', color: '#5ab3ef' },
-  modelTag: { fontSize: '11px', color: '#6c7883', fontWeight: '400' },
-  bubble: { background: '#232e3c', borderRadius: '6px 18px 18px 18px', padding: '8px 12px', minWidth: 0, overflow: 'hidden' },
-  mdWrap: { color: '#e8e8e8', fontSize: '14px', lineHeight: '1.65', wordBreak: 'break-word', overflowX: 'auto' },
+  agentNameRow: { display: 'flex', alignItems: 'baseline', gap: space.px3, marginBottom: 3, paddingLeft: 2, flexWrap: 'wrap' },
+  agentName: { fontSize: fontSize.base, fontWeight: fontWeight.semibold, color: color.accent },
+  modelTag: { fontSize: fontSize.xs, color: color.textMuted, fontWeight: fontWeight.regular },
+  attributionTag: {
+    fontSize: fontSize.xs,
+    color: color.accent,
+    background: color.accentBg,
+    padding: '0 6px',
+    borderRadius: radius.xs,
+  },
+  bubble: {
+    background: color.agentBubble,
+    borderRadius: radius.bubbleIn,
+    padding: '8px 12px',
+    minWidth: 0,
+    overflow: 'hidden',
+  },
+  md: { color: color.text, fontSize: fontSize.md, lineHeight: 1.65, wordBreak: 'break-word', overflowX: 'auto' },
   userRow: { display: 'flex', justifyContent: 'flex-end' },
-  userBubble: { maxWidth: '75%', background: '#2b5278', borderRadius: '18px 6px 18px 18px', padding: '8px 12px' },
-  bubbleMeta: { display: 'flex', justifyContent: 'flex-end', marginTop: '3px' },
-  bubbleTime: { fontSize: '11px', color: '#6c7883' },
+  userRowInline: { display: 'flex', justifyContent: 'flex-end', marginTop: 4 },
+  teammateRow: { display: 'flex', flexDirection: 'column', alignItems: 'stretch' },
+  userBubble: {
+    maxWidth: '75%',
+    background: color.userBubble,
+    color: color.userBubbleText,
+    borderRadius: radius.bubbleOut,
+    padding: '8px 12px',
+  },
+  userMd: {
+    fontSize: fontSize.md,
+    lineHeight: 1.65,
+    wordBreak: 'break-word',
+    overflowX: 'auto',
+    // color inherits from userBubble (white) so markdown text reads on the blue.
+  },
+  bubbleMeta: { display: 'flex', justifyContent: 'flex-end', marginTop: 3 },
+  bubbleTime: { fontSize: fontSize.xs, color: color.textMuted },
+  userBubbleMeta: { display: 'flex', justifyContent: 'flex-end', marginTop: 3 },
+  userBubbleTime: { fontSize: fontSize.xs, color: 'rgba(255, 255, 255, 0.7)' },
 };
