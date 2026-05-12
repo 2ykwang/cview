@@ -173,6 +173,16 @@ export function MoonIcon(props) {
   );
 }
 
+export function DownloadIcon(props) {
+  return (
+    <IconBase {...props}>
+      <path d="M12 3v12" />
+      <path d="m6 11 6 6 6-6" />
+      <path d="M5 21h14" />
+    </IconBase>
+  );
+}
+
 export function CameraIcon(props) {
   return (
     <IconBase {...props}>
