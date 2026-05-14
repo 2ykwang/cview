@@ -1,3 +1,5 @@
+import { tokenize, getDisplayText } from '@shared/messageTokenizer.js';
+
 const SKIP_TYPES = new Set([
   'progress',
   'system',
@@ -32,32 +34,21 @@ export function isSameDay(a, b) {
   return da.getFullYear() === db.getFullYear() && da.getMonth() === db.getMonth() && da.getDate() === db.getDate();
 }
 
-// teammate-message tags appear in older Claude Code data (e.g. SendMessage-based teams).
-// Modern subagent-only sessions don't emit these, so the parser is a no-op there.
-export function parseTeammateMessages(content) {
-  if (typeof content !== 'string') return [];
+// Phase 10: tokenizer segment 에서 teammate-message envelope 만 추출하여 카드 props 매핑.
+function extractTeammateMessages(segments) {
   const results = [];
-  const regex = /<teammate-message([^>]*)>([\s\S]*?)<\/teammate-message>/g;
-  let match;
-  while ((match = regex.exec(content)) !== null) {
-    const attrsStr = match[1];
-    const body = match[2].trim();
-    const idMatch = attrsStr.match(/teammate_id="([^"]+)"/);
-    const colorMatch = attrsStr.match(/color="([^"]+)"/);
-    const summaryMatch = attrsStr.match(/summary="([^"]+)"/);
-    results.push({
-      teammateId: idMatch ? idMatch[1] : 'unknown',
-      color: colorMatch ? colorMatch[1] : 'gray',
-      summary: summaryMatch ? summaryMatch[1] : '',
-      body,
-    });
+  for (const s of segments) {
+    if (s && s.kind === 'envelope' && s.name === 'teammate-message') {
+      const attrs = s.attrs || {};
+      results.push({
+        teammateId: attrs.teammate_id || 'unknown',
+        color: attrs.color || 'gray',
+        summary: attrs.summary || '',
+        body: (s.inner || '').trim(),
+      });
+    }
   }
   return results;
-}
-
-export function stripTeammateMessages(content) {
-  if (typeof content !== 'string') return '';
-  return content.replace(/<teammate-message[\s\S]*?<\/teammate-message>/g, '').trim();
 }
 
 export function hasRenderableAssistantContent(content) {
@@ -83,16 +74,17 @@ export function processMessages(records) {
     .map((r) => {
       if (r.type !== 'user') return r;
       const content = r.message?.content;
-      if (typeof content === 'string') {
-        const teammateMessages = parseTeammateMessages(content);
-        const plainText = teammateMessages.length ? stripTeammateMessages(content) : content;
-        return { ...r, _teammateMessages: teammateMessages, _plainText: plainText };
-      }
-      return r;
+      if (typeof content !== 'string') return r;
+      // tokenize 후 derive — _teammateMessages / _plainText 는 MessageBubble 의 기존
+      // 분기와 호환 (segment kind 의 결과물).
+      const segments = tokenize(content);
+      const teammateMessages = extractTeammateMessages(segments);
+      const plainText = getDisplayText(segments).trim();
+      return { ...r, _segments: segments, _teammateMessages: teammateMessages, _plainText: plainText };
     })
     .filter((r) => {
       if (r.type === 'user') {
-        if (r._teammateMessages?.length) return true; // render as teammate cards
+        if (r._teammateMessages?.length) return true;
         if (r._plainText) return Boolean(r._plainText.trim());
         if (Array.isArray(r.message?.content)) return userArrayHasText(r.message.content);
         return false;

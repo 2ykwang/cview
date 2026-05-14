@@ -7,6 +7,11 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 export default defineConfig({
   plugins: [react()],
+  resolve: {
+    alias: {
+      '@shared': path.resolve(__dirname, '../shared'),
+    },
+  },
   build: {
     outDir: path.resolve(__dirname, '../../dist'),
     emptyOutDir: true,
