@@ -1,0 +1,2 @@
+{"parentUuid":null,"isSidechain":false,"type":"user","message":{"role":"user","content":"clean user input without envelope"},"uuid":"g-fp-001","timestamp":"2026-02-01T15:00:00Z","cwd":"/tmp/fixture-regression-firstprompt-envelope","gitBranch":"main","sessionId":"02000000-0006-0006-0006-000000000006"}
+{"parentUuid":"g-fp-001","type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"reviewed"}]},"uuid":"g-fp-002","timestamp":"2026-02-01T15:00:01Z","cwd":"/tmp/fixture-regression-firstprompt-envelope","sessionId":"02000000-0006-0006-0006-000000000006"}

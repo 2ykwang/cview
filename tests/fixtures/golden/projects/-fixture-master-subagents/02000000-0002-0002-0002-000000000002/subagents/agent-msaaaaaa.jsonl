@@ -1,0 +1,2 @@
+{"parentUuid":null,"isSidechain":true,"type":"user","message":{"role":"user","content":"first sub"},"uuid":"g-ms-sa-001","timestamp":"2026-02-01T11:00:01Z","cwd":"/tmp/fixture-golden-master-subagents","sessionId":"02000000-0002-0002-0002-000000000002"}
+{"parentUuid":"g-ms-sa-001","type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"A done"}]},"uuid":"g-ms-sa-002","timestamp":"2026-02-01T11:00:05Z","cwd":"/tmp/fixture-golden-master-subagents","sessionId":"02000000-0002-0002-0002-000000000002"}

@@ -1,0 +1,2 @@
+{"parentUuid":null,"isSidechain":true,"type":"user","message":{"role":"user","content":"orphan first agent input"},"uuid":"g-orp-001","timestamp":"2026-02-01T12:00:00Z","cwd":"/tmp/fixture-golden-orphan","gitBranch":"main","sessionId":"02000000-0003-0003-0003-000000000003"}
+{"parentUuid":"g-orp-001","type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"orphan first agent answer"}]},"uuid":"g-orp-002","timestamp":"2026-02-01T12:00:01Z","cwd":"/tmp/fixture-golden-orphan","sessionId":"02000000-0003-0003-0003-000000000003"}

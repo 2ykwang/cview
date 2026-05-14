@@ -1,0 +1,2 @@
+{"parentUuid":null,"isSidechain":false,"type":"user","message":{"role":"user","content":"hello from x parent"},"uuid":"g-pdx-001","timestamp":"2026-02-01T16:00:00Z","cwd":"/Users/x/pname","gitBranch":"main","sessionId":"02000000-0007-0007-0007-000000000007"}
+{"parentUuid":"g-pdx-001","type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"hi from x"}]},"uuid":"g-pdx-002","timestamp":"2026-02-01T16:00:01Z","cwd":"/Users/x/pname","sessionId":"02000000-0007-0007-0007-000000000007"}

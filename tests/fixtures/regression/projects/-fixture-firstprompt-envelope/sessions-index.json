@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "entries": [
+    {
+      "sessionId": "02000000-0006-0006-0006-000000000006",
+      "fullPath": "",
+      "fileMtime": 1769753778947,
+      "firstPrompt": "<command-message>review</command-message><command-name>/review</command-name><command-args></command-args>\nplease review the recent change",
+      "messageCount": 2,
+      "created": "2026-02-01T15:00:00.000Z",
+      "modified": "2026-02-01T15:00:01.000Z",
+      "gitBranch": "main",
+      "projectPath": "/tmp/fixture-regression-firstprompt-envelope",
+      "isSidechain": false
+    }
+  ]
+}

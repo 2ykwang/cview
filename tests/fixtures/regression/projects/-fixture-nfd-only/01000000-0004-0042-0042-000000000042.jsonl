@@ -1,0 +1,2 @@
+{"parentUuid":null,"isSidechain":false,"type":"user","message":{"role":"user","content":"안녕하세요 NFD decomposed form"},"uuid":"u-nfd-001","timestamp":"2026-01-01T00:00:00Z","cwd":"/tmp/fixture-regression-nfd-only","gitBranch":"main","sessionId":"01000000-0004-0042-0042-000000000042"}
+{"parentUuid":"u-nfd-001","type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"acknowledged"}]},"uuid":"u-nfd-002","timestamp":"2026-01-01T00:00:01Z","cwd":"/tmp/fixture-regression-nfd-only","sessionId":"01000000-0004-0042-0042-000000000042"}

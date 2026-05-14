@@ -11,6 +11,8 @@
     "start": "node bin/cli.js",
     "build": "cd src/frontend && npm run build",
     "dev": "concurrently \"node src/server.js\" \"cd src/frontend && npm run dev\"",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "lint:design": "npx --yes @google/design.md lint DESIGN.md",
     "prepare": "cd src/frontend && npm install"
   },
@@ -20,11 +22,15 @@
     "open": "^10.1.0"
   },
   "devDependencies": {
-    "concurrently": "^8.2.2"
+    "concurrently": "^8.2.2",
+    "jsdom": "^26.0.0",
+    "supertest": "^7.0.0",
+    "vitest": "^4.0.0"
   },
   "files": [
     "bin",
     "src/server.js",
+    "src/shared",
     "dist"
   ]
 }

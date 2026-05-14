@@ -1,0 +1,6 @@
+{"type":"last-prompt","sessionId":"02000000-0005-0005-0005-000000000005"}
+{"type":"permission-mode","mode":"acceptEdits","sessionId":"02000000-0005-0005-0005-000000000005"}
+{"type":"file-history-snapshot","sessionId":"02000000-0005-0005-0005-000000000005"}
+{"type":"queue-operation","sessionId":"02000000-0005-0005-0005-000000000005"}
+{"parentUuid":null,"isSidechain":false,"type":"user","message":{"role":"user","content":"first real input after meta records"},"uuid":"g-meta-001","timestamp":"2026-02-01T14:00:01Z","cwd":"/tmp/fixture-golden-meta-skip","gitBranch":"main","sessionId":"02000000-0005-0005-0005-000000000005"}
+{"parentUuid":"g-meta-001","type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"answer"}]},"uuid":"g-meta-002","timestamp":"2026-02-01T14:00:02Z","cwd":"/tmp/fixture-golden-meta-skip","sessionId":"02000000-0005-0005-0005-000000000005"}

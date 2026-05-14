@@ -1,0 +1,2 @@
+{"parentUuid":null,"isSidechain":false,"type":"user","message":{"role":"user","content":"안녕하세요 NFC normalized form"},"uuid":"u-nfc-001","timestamp":"2026-01-01T00:00:00Z","cwd":"/tmp/fixture-regression-nfc-only","gitBranch":"main","sessionId":"01000000-0004-0041-0041-000000000041"}
+{"parentUuid":"u-nfc-001","type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"acknowledged"}]},"uuid":"u-nfc-002","timestamp":"2026-01-01T00:00:01Z","cwd":"/tmp/fixture-regression-nfc-only","sessionId":"01000000-0004-0041-0041-000000000041"}

@@ -1,0 +1,2 @@
+{"parentUuid":null,"isSidechain":false,"type":"user","message":{"role":"user","content":"hello world"},"uuid":"g-mb-001","timestamp":"2026-02-01T10:00:00Z","cwd":"/tmp/fixture-golden-master-basic","gitBranch":"main","sessionId":"02000000-0001-0001-0001-000000000001"}
+{"parentUuid":"g-mb-001","type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"hi there"}]},"uuid":"g-mb-002","timestamp":"2026-02-01T10:00:01Z","cwd":"/tmp/fixture-golden-master-basic","sessionId":"02000000-0001-0001-0001-000000000001"}
