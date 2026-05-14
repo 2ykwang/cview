@@ -67,6 +67,15 @@ export default function SessionSelect() {
   const [query, setQuery] = useState('');
   const [debouncedQuery, setDebouncedQuery] = useState('');
   const [hovered, setHovered] = useState(null);
+  const [expandedRows, setExpandedRows] = useState(() => new Set());
+
+  const toggleExpanded = useCallback((key) => {
+    setExpandedRows((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key); else next.add(key);
+      return next;
+    });
+  }, []);
   const listRef = useRef(null);
   const sentinelRef = useRef(null);
   const requestIdRef = useRef(0);
@@ -236,9 +245,29 @@ export default function SessionSelect() {
                       {s.subagentCount}
                     </span>
                   )}
+                  {s.matchSnippets?.length > 0 && (
+                    <button
+                      type="button"
+                      style={styles.matchesChip}
+                      onClick={(e) => { e.stopPropagation(); toggleExpanded(itemKey); }}
+                      title={`${s.matchSnippets.length} match${s.matchSnippets.length > 1 ? 'es' : ''}`}
+                    >
+                      {s.matchSnippets.length} {s.matchSnippets.length > 1 ? 'matches' : 'match'}
+                    </button>
+                  )}
                   <span style={styles.actionsSpacer} />
                   <OpenSessionCommand cwd={s.cwd} sessionId={s.id} />
                 </div>
+                {expandedRows.has(itemKey) && s.matchSnippets?.length > 0 && (
+                  <div style={styles.snippetList} onClick={(e) => e.stopPropagation()}>
+                    {s.matchSnippets.map((snip, i) => (
+                      <div key={i} style={styles.snippetItem}>
+                        <span style={styles.snippetSource}>{snip.source}</span>
+                        <span style={styles.snippetText}>{renderHighlightedText(snip.text, query)}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             </div>
           );
@@ -374,6 +403,53 @@ const styles = {
     border: `1px solid ${color.accent}`,
     padding: '0 6px',
     borderRadius: radius.pill,
+  },
+  matchesChip: {
+    fontSize: 10,
+    lineHeight: 1.4,
+    fontWeight: fontWeight.semibold,
+    color: color.accent,
+    background: color.accentBg,
+    border: `1px solid ${color.accent}`,
+    padding: '0 6px',
+    borderRadius: radius.pill,
+    cursor: 'pointer',
+    fontFamily: 'inherit',
+  },
+  snippetList: {
+    marginTop: 6,
+    display: 'flex',
+    flexDirection: 'column',
+    gap: 4,
+    padding: '6px 8px',
+    background: color.bgAlt,
+    border: `1px solid ${color.border}`,
+    borderRadius: radius.xs,
+  },
+  snippetItem: {
+    display: 'flex',
+    gap: space.px3,
+    fontSize: fontSize.xs,
+    lineHeight: 1.5,
+    color: color.text,
+  },
+  snippetSource: {
+    flexShrink: 0,
+    fontSize: 10,
+    fontWeight: fontWeight.semibold,
+    color: color.textMuted,
+    background: color.surface,
+    border: `1px solid ${color.border}`,
+    padding: '0 5px',
+    borderRadius: radius.xs,
+    height: 'fit-content',
+    fontFamily: font.mono,
+  },
+  snippetText: {
+    flex: 1,
+    minWidth: 0,
+    wordBreak: 'break-word',
+    fontFamily: font.mono,
   },
   actionsSpacer: { flex: 1 },
   mark: { background: color.accentBg, color: color.accent, borderRadius: 3, padding: '0 2px', fontWeight: fontWeight.semibold },
