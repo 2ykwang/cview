@@ -5,6 +5,17 @@ import { watch, readFileSync, readdirSync, existsSync } from 'fs';
 import path from 'path';
 import os from 'os';
 import { fileURLToPath } from 'url';
+import {
+  tokenize,
+  getDisplayText,
+  getSearchableText,
+  getPreviewText,
+} from './shared/messageTokenizer.js';
+import {
+  CURRENT_SCHEMA_VERSION,
+  indexFilePath,
+  isIndexHit,
+} from './searchIndex.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -29,7 +40,6 @@ const META_ONLY_TYPES = new Set([
   'file-history-snapshot',
   'queue-operation',
 ]);
-const META_CHUNK_BYTES = 128 * 1024;
 const MAX_META_CACHE = 5000;
 const MAX_INDEX_CACHE = 200;
 const sessionMetaCache = new Map();
@@ -143,71 +153,12 @@ function parseJsonLines(lines, maxCount, fromTail = false) {
   return out;
 }
 
-function getTextContent(messageContent) {
-  if (typeof messageContent === 'string') return messageContent;
-  if (Array.isArray(messageContent)) {
-    const textBlock = messageContent.find(b => b.type === 'text');
-    return textBlock?.text || '';
-  }
-  return '';
-}
-
-// Strip <teammate-message>...</teammate-message> envelopes from a string.
-// Older Claude Code sessions use these to deliver messages from other agents,
-// and the wrapper would otherwise pollute session titles / search snippets.
-function stripTeammateEnvelope(text) {
-  if (typeof text !== 'string') return '';
-  return text.replace(/<teammate-message[\s\S]*?<\/teammate-message>/g, '').trim();
-}
-
+// Phase 9: envelope/text 처리 모두 messageTokenizer 로 일원화. 이전 단계의
+// `KNOWN_ENVELOPES` 배열·`stripKnownEnvelopes`·`getTextContent` 모두 제거.
 function getRecordSearchableText(record) {
   if (!record) return '';
-  if (record.type === 'user') {
-    return stripTeammateEnvelope(getTextContent(record.message?.content));
-  }
-  if (record.type === 'assistant' && Array.isArray(record.message?.content)) {
-    return record.message.content
-      .filter(block => block.type === 'text' && typeof block.text === 'string')
-      .map(block => block.text)
-      .join(' ')
-      .trim();
-  }
-  return '';
-}
-
-function parseHeadTailLines(headText, tailText, hasTailOffset) {
-  const headLines = headText.split('\n').filter(Boolean);
-  let tailLines = tailText.split('\n');
-  if (hasTailOffset && tailLines.length > 0) {
-    tailLines = tailLines.slice(1);
-  }
-  tailLines = tailLines.filter(Boolean);
-  return { headLines, tailLines };
-}
-
-async function readHeadTailLines(filePath, stat) {
-  if (!stat.size) return { headLines: [], tailLines: [] };
-
-  const handle = await fs.open(filePath, 'r');
-  try {
-    const headBytes = Math.min(META_CHUNK_BYTES, stat.size);
-    const headBuffer = Buffer.alloc(headBytes);
-    const { bytesRead: headRead } = await handle.read(headBuffer, 0, headBytes, 0);
-    const headText = headBuffer.toString('utf8', 0, headRead);
-
-    const tailStart = Math.max(0, stat.size - META_CHUNK_BYTES);
-    if (tailStart === 0) {
-      return parseHeadTailLines(headText, headText, false);
-    }
-    const tailBytes = stat.size - tailStart;
-    const tailBuffer = Buffer.alloc(tailBytes);
-    const { bytesRead: tailRead } = await handle.read(tailBuffer, 0, tailBytes, tailStart);
-    const tailText = tailBuffer.toString('utf8', 0, tailRead);
-
-    return parseHeadTailLines(headText, tailText, tailStart > 0);
-  } finally {
-    await handle.close();
-  }
+  if (record.type !== 'user' && record.type !== 'assistant') return '';
+  return getSearchableText(tokenize(record.message?.content));
 }
 
 // Pick the first record that has session metadata (cwd / timestamp).
@@ -221,101 +172,128 @@ function pickFirstMeaningfulRecord(headRecords) {
   return headRecords.find(r => r && !META_ONLY_TYPES.has(r.type)) || headRecords[0] || {};
 }
 
+// Phase 13: 풀 파일 읽기 + cap 3종 모두 제거 (text.slice 300자 / searchParts 8/16 /
+// META_CHUNK_BYTES 128KB). 디스크 인덱스가 결과를 캐시하므로 첫 빌드만 풀 비용,
+// 이후 hit 시 인덱스 readFile 한 번. SSE 스트림은 본 함수 우회 — readJsonlMessages 직접.
 async function extractSessionMeta(filePath, projectDir, statOverride = null) {
   const stat = statOverride || await fs.stat(filePath);
-  let { headLines, tailLines } = await readHeadTailLines(filePath, stat);
-  let headRecords = parseJsonLines(headLines, 80, false);
-  let tailRecords = parseJsonLines(tailLines, 80, true);
-
-  if (headRecords.length === 0 && stat.size > 0) {
-    const content = await fs.readFile(filePath, 'utf-8');
-    const lines = content.trim().split('\n').filter(Boolean);
-    headLines = lines;
-    tailLines = lines;
-    headRecords = parseJsonLines(headLines, 80, false);
-    tailRecords = parseJsonLines(tailLines, 80, true);
+  if (!stat.size) {
+    return { title: '', preview: '', projectName: 'unknown', projectParent: '', cwd: null, gitBranch: null, timestamp: null, lastTimestamp: null, searchText: '' };
   }
 
-  const first = pickFirstMeaningfulRecord(headRecords);
+  const content = await fs.readFile(filePath, 'utf-8');
+  const lines = content.split('\n').filter(Boolean);
+  const records = [];
+  for (const line of lines) {
+    try { records.push(JSON.parse(line)); } catch { /* skip malformed */ }
+  }
+
+  const first = pickFirstMeaningfulRecord(records);
   const cwd = first.cwd || null;
   const cwdParts = (cwd || '').split('/').filter(Boolean);
   const projectName = cwdParts[cwdParts.length - 1] || 'unknown';
   const projectParent = cwdParts[cwdParts.length - 2] || '';
   const gitBranch = first.gitBranch || null;
 
-  // First valid timestamp anywhere in the head window.
   let timestamp = null;
-  for (const r of headRecords) {
+  for (const r of records) {
     if (r?.timestamp) { timestamp = r.timestamp; break; }
   }
 
   let title = '';
-  let preview = '';
-  const searchParts = [];
-
   const sessionId = path.basename(filePath, '.jsonl');
   const firstPrompt = await getSessionPromptFromIndex(projectDir, sessionId);
   if (firstPrompt) {
-    const stripped = stripTeammateEnvelope(firstPrompt);
-    if (stripped) title = stripped.slice(0, 60);
+    const display = getDisplayText(tokenize(firstPrompt)).trim();
+    if (display) title = display.slice(0, 60);
   }
-
   if (!title) {
-    for (const r of headRecords) {
+    for (const r of records) {
       if (r.type === 'user') {
-        const cnt = stripTeammateEnvelope(getTextContent(r.message?.content));
-        if (cnt) { title = cnt.slice(0, 60); break; }
+        const display = getDisplayText(tokenize(r.message?.content)).trim();
+        if (display) { title = display.slice(0, 60); break; }
       }
     }
   }
-
   if (!title) {
     const d = new Date(timestamp || Date.now());
     const dateStr = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
     title = `${projectName} · ${dateStr}`;
   }
 
-  for (let i = tailRecords.length - 1; i >= 0; i--) {
-    const r = tailRecords[i];
-    if (r.type === 'assistant' && Array.isArray(r.message?.content)) {
-      for (const block of r.message.content) {
-        if (block.type === 'text' && block.text) {
-          preview = block.text.slice(0, 60);
-          break;
-        }
+  let preview = '';
+  for (let i = records.length - 1; i >= 0; i--) {
+    const r = records[i];
+    if (r.type === 'assistant') {
+      const previewText = getPreviewText(tokenize(r.message?.content)).trim();
+      if (previewText) {
+        preview = previewText.slice(0, 60);
+        break;
       }
-      if (preview) break;
     }
   }
 
-  for (const r of headRecords) {
+  // 모든 record 의 searchable text 합산. record cap (text.slice 300) /
+  // record 개수 cap (8/16) / chunk cap (128KB) 모두 제거.
+  const searchParts = [];
+  for (const r of records) {
     const text = getRecordSearchableText(r);
-    if (text) searchParts.push(text.slice(0, 300));
-    if (searchParts.length >= 8) break;
-  }
-  for (let i = tailRecords.length - 1; i >= 0; i--) {
-    const text = getRecordSearchableText(tailRecords[i]);
-    if (text) searchParts.push(text.slice(0, 300));
-    if (searchParts.length >= 16) break;
+    if (text) searchParts.push(text);
   }
   const searchText = searchParts.join('\n');
 
   let lastTimestamp = null;
-  for (let i = tailRecords.length - 1; i >= 0; i--) {
-    if (tailRecords[i].timestamp) { lastTimestamp = tailRecords[i].timestamp; break; }
+  for (let i = records.length - 1; i >= 0; i--) {
+    if (records[i].timestamp) { lastTimestamp = records[i].timestamp; break; }
   }
 
   return { title, preview, projectName, projectParent, cwd, gitBranch, timestamp, lastTimestamp, searchText };
 }
 
+// 디스크 인덱스 layer — Phase 13. hit 시 readFile 한 번, miss 시 풀 빌드 후 저장.
+// 권한 실패는 silently 비활성화 fallback.
+async function readDiskIndex(filePath, projectDir, stat) {
+  const sessionId = path.basename(filePath, '.jsonl');
+  const indexPath = indexFilePath(projectDir, sessionId);
+  try {
+    const raw = await fs.readFile(indexPath, 'utf-8');
+    const entry = JSON.parse(raw);
+    if (isIndexHit(entry, stat)) return entry.meta;
+  } catch { /* miss / 손상 / 부재 — silently fallback */ }
+  return null;
+}
+
+async function writeDiskIndex(filePath, projectDir, stat, meta) {
+  const sessionId = path.basename(filePath, '.jsonl');
+  const indexPath = indexFilePath(projectDir, sessionId);
+  try {
+    await fs.mkdir(path.dirname(indexPath), { recursive: true });
+    const entry = {
+      schemaVersion: CURRENT_SCHEMA_VERSION,
+      sourceMtime: stat.mtimeMs,
+      sourceSize: stat.size,
+      meta,
+    };
+    await fs.writeFile(indexPath, JSON.stringify(entry));
+  } catch { /* silently disable */ }
+}
+
 async function getSessionMetaCached(filePath, projectDir, statOverride = null) {
   const stat = statOverride || await fs.stat(filePath);
   const cacheKey = cacheKeyFromStat(stat);
-  const cached = sessionMetaCache.get(filePath);
-  if (cached?.key === cacheKey) return cached.data;
+
+  const memCached = sessionMetaCache.get(filePath);
+  if (memCached?.key === cacheKey) return memCached.data;
+
+  const diskMeta = await readDiskIndex(filePath, projectDir, stat);
+  if (diskMeta) {
+    setCachedMeta(filePath, cacheKey, diskMeta);
+    return diskMeta;
+  }
 
   const meta = await extractSessionMeta(filePath, projectDir, stat);
   setCachedMeta(filePath, cacheKey, meta);
+  await writeDiskIndex(filePath, projectDir, stat, meta);
   return meta;
 }
 
@@ -446,16 +424,29 @@ async function buildSessionRow(projectDir, project, session) {
   if (session.kind === 'master') {
     meta = await getSessionMetaCached(session.filePath, projectDir);
   } else {
-    // Orphan: derive from the first subagent's jsonl head.
+    // Phase 15: 모든 subagent jsonl 의 searchText 결합. 첫 subagent 만 보던 회귀 해소.
+    // title/preview/cwd/gitBranch/timestamp 같은 메타는 첫 subagent (mtime 정렬 후
+    // listSubagents 결과의 순서대로 첫) 의 결과 그대로 — orphan 의 대표 정체성.
+    // searchText 만 모든 subagent 의 합산으로 확장 (검색 hit 률 일관성).
     const first = subagents[0];
-    if (first?.jsonlPath || subagents.length) {
-      const firstPath = first ? path.join(session.subagentDir, `agent-${first.agentId}.jsonl`) : null;
-      if (firstPath) {
-        try { meta = await getSessionMetaCached(firstPath, projectDir); } catch { meta = null; }
-      }
+    if (first) {
+      const firstPath = path.join(session.subagentDir, `agent-${first.agentId}.jsonl`);
+      try { meta = await getSessionMetaCached(firstPath, projectDir); } catch { meta = null; }
     }
     if (!meta) {
       meta = { title: `orphan · ${session.sessionId.slice(0, 8)}`, preview: '', projectName: path.basename(projectDir), projectParent: '', cwd: null, gitBranch: null, timestamp: null, lastTimestamp: null, searchText: '' };
+    }
+    if (subagents.length > 1) {
+      const searchParts = [meta.searchText || ''];
+      for (let i = 1; i < subagents.length; i++) {
+        const sub = subagents[i];
+        const subPath = path.join(session.subagentDir, `agent-${sub.agentId}.jsonl`);
+        try {
+          const subMeta = await getSessionMetaCached(subPath, projectDir);
+          if (subMeta?.searchText) searchParts.push(subMeta.searchText);
+        } catch { /* skip broken subagent */ }
+      }
+      meta = { ...meta, searchText: searchParts.filter(Boolean).join('\n') };
     }
   }
 
@@ -547,9 +538,17 @@ function readOrphanMessages(subagentDirAbs) {
   return all;
 }
 
+// Phase 11: 검색 매칭 정규화 — NFC + lowercase. macOS 파일시스템(NFD 경향) 과
+// 일반 입력(NFC) 의 자모 분리/조합 차이로 한글 매치가 실패하던 회귀를 차단.
+// 인덱스와 쿼리 양쪽이 동일 함수를 거쳐 단어 경계가 동등.
+function normalizeForSearch(s) {
+  return (s || '').normalize('NFC').toLowerCase();
+}
+
 app.get('/api/sessions', async (req, res) => {
   try {
-    const q = typeof req.query.q === 'string' ? req.query.q.trim().toLowerCase() : '';
+    const q = typeof req.query.q === 'string' ? req.query.q.trim() : '';
+    const qN = q ? normalizeForSearch(q) : '';
     const parsedLimit = Number.parseInt(req.query.limit, 10);
     const parsedOffset = Number.parseInt(req.query.offset, 10);
     const usePagination = req.query.limit !== undefined
@@ -588,21 +587,68 @@ app.get('/api/sessions', async (req, res) => {
         row.cwd,
         row.gitBranch,
         row.kind,
-        row.id, // allow searching by sessionId prefix
+        row.id,
       ];
-      return fields.some(v => (v || '').toLowerCase().includes(q));
+      return fields.some(v => normalizeForSearch(v).includes(qN));
     };
 
-    const makeSnippet = (text, queryLower) => {
-      if (!text || !queryLower) return '';
-      const normalized = text.replace(/\s+/g, ' ').trim();
+    // Phase 16: 단일 위치 → N개 스니펫. 각 항목 {source, text, before, after, recordIndex}.
+    // source enum: 'title' | 'preview' | 'content'. 우선순위: title → preview → content.
+    // 한 세션당 cap 5.
+    const SNIPPET_RADIUS = 36;
+    const SNIPPET_CAP = 5;
+
+    function buildSnippetItem(text, idx, queryLen) {
+      const start = Math.max(0, idx - SNIPPET_RADIUS);
+      const end = Math.min(text.length, idx + queryLen + SNIPPET_RADIUS);
+      const before = (start > 0 ? '...' : '') + text.slice(start, idx);
+      const after = text.slice(idx + queryLen, end) + (end < text.length ? '...' : '');
+      return {
+        text: `${before}${text.slice(idx, idx + queryLen)}${after}`,
+        before,
+        after,
+      };
+    }
+
+    const collectMatchSnippets = (row) => {
+      if (!q) return null;
+      const items = [];
+      const titleN = normalizeForSearch(row.title);
+      const previewN = normalizeForSearch(row.preview);
+      const searchN = normalizeForSearch(row._searchText || '').replace(/\s+/g, ' ').trim();
+
+      if (titleN.includes(qN)) {
+        const idx = titleN.indexOf(qN);
+        items.push({ source: 'title', recordIndex: -1, ...buildSnippetItem(row.title || '', idx, qN.length) });
+      }
+      if (previewN.includes(qN) && items.length < SNIPPET_CAP) {
+        const idx = previewN.indexOf(qN);
+        items.push({ source: 'preview', recordIndex: -1, ...buildSnippetItem(row.preview || '', idx, qN.length) });
+      }
+      if (searchN) {
+        let cursor = 0;
+        let recordIndex = 0;
+        while (items.length < SNIPPET_CAP) {
+          const idx = searchN.indexOf(qN, cursor);
+          if (idx < 0) break;
+          items.push({ source: 'content', recordIndex, ...buildSnippetItem(searchN, idx, qN.length) });
+          cursor = idx + qN.length;
+          recordIndex += 1;
+        }
+      }
+      return items;
+    };
+
+    // 호환 — 기존 단수 matchSnippet 필드 (Phase 5 결정 "기존 API 파괴 변경 금지").
+    const makeSnippet = (text, query) => {
+      if (!text || !query) return '';
+      const queryN = normalizeForSearch(query);
+      const normalized = normalizeForSearch(text).replace(/\s+/g, ' ').trim();
       if (!normalized) return '';
-      const lowered = normalized.toLowerCase();
-      const idx = lowered.indexOf(queryLower);
+      const idx = normalized.indexOf(queryN);
       if (idx < 0) return '';
-      const radius = 36;
-      const start = Math.max(0, idx - radius);
-      const end = Math.min(normalized.length, idx + queryLower.length + radius);
+      const start = Math.max(0, idx - SNIPPET_RADIUS);
+      const end = Math.min(normalized.length, idx + queryN.length + SNIPPET_RADIUS);
       const prefix = start > 0 ? '...' : '';
       const suffix = end < normalized.length ? '...' : '';
       return `${prefix}${normalized.slice(start, end)}${suffix}`;
@@ -616,9 +662,11 @@ app.get('/api/sessions', async (req, res) => {
           ? `${s._projectParent}/${s._projectName}`
           : s._projectName;
         if (q) {
-          const titleLower = (s.title || '').toLowerCase();
-          const previewLower = (s.preview || '').toLowerCase();
-          if (!titleLower.includes(q) && !previewLower.includes(q)) {
+          const items = collectMatchSnippets(s);
+          if (items && items.length > 0) {
+            s.matchSnippets = items;
+            s.matchSnippet = items[0].text;
+          } else {
             const snippet = makeSnippet(s._searchText || '', q);
             if (snippet) s.matchSnippet = snippet;
           }
