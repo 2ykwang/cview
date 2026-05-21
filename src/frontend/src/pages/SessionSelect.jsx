@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { BotIcon, SearchIcon, FolderIcon } from '../components/Icon';
 import OpenSessionCommand from '../components/OpenSessionCommand';
 import ThemeToggle from '../components/ThemeToggle';
@@ -58,14 +58,16 @@ function shortenPath(p) {
 
 export default function SessionSelect() {
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [sessions, setSessions] = useState([]);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState(null);
   const [hasMore, setHasMore] = useState(true);
   const [nextOffset, setNextOffset] = useState(0);
-  const [query, setQuery] = useState('');
-  const [debouncedQuery, setDebouncedQuery] = useState('');
+  // Seed the search from the URL so it survives navigating away and back.
+  const [query, setQuery] = useState(() => searchParams.get('q') || '');
+  const [debouncedQuery, setDebouncedQuery] = useState(() => searchParams.get('q') || '');
   const [hovered, setHovered] = useState(null);
   const [expandedRows, setExpandedRows] = useState(() => new Set());
 
@@ -140,6 +142,12 @@ export default function SessionSelect() {
     return () => clearTimeout(timer);
   }, [query]);
 
+  // Mirror the debounced query into the URL so a back-navigation restores
+  // it. `replace` keeps it from piling up history entries on every keystroke.
+  useEffect(() => {
+    setSearchParams(debouncedQuery ? { q: debouncedQuery } : {}, { replace: true });
+  }, [debouncedQuery, setSearchParams]);
+
   useEffect(() => {
     requestIdRef.current += 1;
     const requestId = requestIdRef.current;
@@ -175,7 +183,8 @@ export default function SessionSelect() {
 
   const openSession = (s) => {
     const params = new URLSearchParams({ project: s.project, sessionId: s.id });
-    navigate(`/session?${params.toString()}`);
+    // `fromList` lets Messenger's back button do a real history.back().
+    navigate(`/session?${params.toString()}`, { state: { fromList: true } });
   };
 
   return (

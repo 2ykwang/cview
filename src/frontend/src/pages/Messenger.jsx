@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
-import { useSearchParams, useNavigate } from 'react-router-dom';
+import { useSearchParams, useNavigate, useLocation } from 'react-router-dom';
 import MessageBubble from '../components/MessageBubble';
 import ExportBar from '../components/ExportBar';
 import OpenSessionCommand from '../components/OpenSessionCommand';
@@ -52,6 +52,7 @@ function shortenPath(p) {
 export default function Messenger() {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
+  const location = useLocation();
   const project = searchParams.get('project');
   const sessionId = searchParams.get('sessionId');
   const isTranscript = searchParams.get('transcript') === '1';
@@ -112,7 +113,7 @@ export default function Messenger() {
   return (
     <div style={s.container}>
       <div style={s.header}>
-        <button style={s.backBtn} onClick={() => navigate('/')} title="Back to sessions">
+        <button style={s.backBtn} onClick={() => (location.state?.fromList ? navigate(-1) : navigate('/'))} title="Back to sessions">
           <ArrowLeftIcon size={13} />
           <span>Back</span>
         </button>
