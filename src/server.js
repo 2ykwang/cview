@@ -202,10 +202,21 @@ async function extractSessionMeta(filePath, projectDir, statOverride = null) {
 
   let title = '';
   const sessionId = path.basename(filePath, '.jsonl');
-  const firstPrompt = await getSessionPromptFromIndex(projectDir, sessionId);
-  if (firstPrompt) {
-    const display = getDisplayText(tokenize(firstPrompt)).trim();
-    if (display) title = display.slice(0, 60);
+  // Prefer the Claude-generated session title (`ai-title` record) when present.
+  // The first user prompt is boilerplate ("This session is being continued
+  // from a previous conversation...") for resumed sessions, which makes those
+  // rows indistinguishable. `aiTitle` stays meaningful. Take the last one —
+  // titles can be regenerated, so the most recent record wins.
+  for (let i = records.length - 1; i >= 0; i--) {
+    const r = records[i];
+    if (r.type === 'ai-title' && r.aiTitle) { title = r.aiTitle.slice(0, 60); break; }
+  }
+  if (!title) {
+    const firstPrompt = await getSessionPromptFromIndex(projectDir, sessionId);
+    if (firstPrompt) {
+      const display = getDisplayText(tokenize(firstPrompt)).trim();
+      if (display) title = display.slice(0, 60);
+    }
   }
   if (!title) {
     for (const r of records) {

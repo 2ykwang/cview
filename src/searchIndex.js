@@ -36,7 +36,9 @@
 import os from 'os';
 import path from 'path';
 
-export const CURRENT_SCHEMA_VERSION = 1;
+// v2: title now prefers the `ai-title` record over the first user prompt.
+// Bumping invalidates all cached indexes so titles get recomputed.
+export const CURRENT_SCHEMA_VERSION = 2;
 
 export function defaultCacheDir() {
   const xdg = process.env.XDG_CACHE_HOME;
