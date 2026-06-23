@@ -360,7 +360,7 @@ const styles = {
   row3: { display: 'flex', alignItems: 'center', gap: 5, flexWrap: 'wrap' },
   title: { fontSize: fontSize.md, fontWeight: fontWeight.semibold, color: color.text, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1, minWidth: 0 },
   time: { fontSize: fontSize.xs, color: color.textMuted, flexShrink: 0 },
-  preview: { fontSize: fontSize.base, color: color.textMuted, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'block' },
+  preview: { fontSize: fontSize.base, color: color.textMuted, overflow: 'hidden', display: '-webkit-box', WebkitBoxOrient: 'vertical', WebkitLineClamp: 2, wordBreak: 'break-word' },
   cwdChip: {
     display: 'inline-flex',
     alignItems: 'center',

@@ -606,7 +606,7 @@ app.get('/api/sessions', async (req, res) => {
     // Phase 16: 단일 위치 → N개 스니펫. 각 항목 {source, text, before, after, recordIndex}.
     // source enum: 'title' | 'preview' | 'content'. 우선순위: title → preview → content.
     // 한 세션당 cap 5.
-    const SNIPPET_RADIUS = 36;
+    const SNIPPET_RADIUS = 60;
     const SNIPPET_CAP = 5;
 
     function buildSnippetItem(text, idx, queryLen) {
@@ -626,7 +626,10 @@ app.get('/api/sessions', async (req, res) => {
       const items = [];
       const titleN = normalizeForSearch(row.title);
       const previewN = normalizeForSearch(row.preview);
-      const searchN = normalizeForSearch(row._searchText || '').replace(/\s+/g, ' ').trim();
+      // Match on the lowercased form but slice the snippet from the original-case
+      // text, so content matches stay readable instead of all-lowercase.
+      const searchBase = (row._searchText || '').normalize('NFC').replace(/\s+/g, ' ').trim();
+      const searchN = searchBase.toLowerCase();
 
       if (titleN.includes(qN)) {
         const idx = titleN.indexOf(qN);
@@ -636,13 +639,13 @@ app.get('/api/sessions', async (req, res) => {
         const idx = previewN.indexOf(qN);
         items.push({ source: 'preview', recordIndex: -1, ...buildSnippetItem(row.preview || '', idx, qN.length) });
       }
-      if (searchN) {
+      if (searchBase) {
         let cursor = 0;
         let recordIndex = 0;
         while (items.length < SNIPPET_CAP) {
           const idx = searchN.indexOf(qN, cursor);
           if (idx < 0) break;
-          items.push({ source: 'content', recordIndex, ...buildSnippetItem(searchN, idx, qN.length) });
+          items.push({ source: 'content', recordIndex, ...buildSnippetItem(searchBase, idx, qN.length) });
           cursor = idx + qN.length;
           recordIndex += 1;
         }
