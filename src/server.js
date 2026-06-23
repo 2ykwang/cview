@@ -161,6 +161,27 @@ function getRecordSearchableText(record) {
   return getSearchableText(tokenize(record.message?.content));
 }
 
+// Count records that render as chat bubbles, mirroring `processMessages` on the
+// frontend: user turns with text/teammate content, assistant turns with text or
+// a tool_use. Tool-result-only `user` records and metadata types are skipped, so
+// this tracks the "N msgs" shown in the session header.
+function countRenderableMessages(records) {
+  let n = 0;
+  for (const r of records) {
+    if (!r) continue;
+    if (r.type === 'user') {
+      const c = r.message?.content;
+      if (typeof c === 'string') { if (getDisplayText(tokenize(c)).trim()) n += 1; }
+      else if (Array.isArray(c) && c.some(b => b?.type === 'text' && b.text?.trim())) n += 1;
+    } else if (r.type === 'assistant') {
+      const c = r.message?.content;
+      if (typeof c === 'string') { if (c.trim()) n += 1; }
+      else if (Array.isArray(c) && c.some(b => (b?.type === 'text' && b.text?.trim()) || b?.type === 'tool_use')) n += 1;
+    }
+  }
+  return n;
+}
+
 // Pick the first record that has session metadata (cwd / timestamp).
 // Modern JSONL starts with `last-prompt` / `permission-mode` which carry neither.
 function pickFirstMeaningfulRecord(headRecords) {
@@ -178,7 +199,7 @@ function pickFirstMeaningfulRecord(headRecords) {
 async function extractSessionMeta(filePath, projectDir, statOverride = null) {
   const stat = statOverride || await fs.stat(filePath);
   if (!stat.size) {
-    return { title: '', preview: '', projectName: 'unknown', projectParent: '', cwd: null, gitBranch: null, timestamp: null, lastTimestamp: null, searchText: '' };
+    return { title: '', preview: '', projectName: 'unknown', projectParent: '', cwd: null, gitBranch: null, timestamp: null, lastTimestamp: null, searchText: '', messageCount: 0 };
   }
 
   const content = await fs.readFile(filePath, 'utf-8');
@@ -258,7 +279,9 @@ async function extractSessionMeta(filePath, projectDir, statOverride = null) {
     if (records[i].timestamp) { lastTimestamp = records[i].timestamp; break; }
   }
 
-  return { title, preview, projectName, projectParent, cwd, gitBranch, timestamp, lastTimestamp, searchText };
+  const messageCount = countRenderableMessages(records);
+
+  return { title, preview, projectName, projectParent, cwd, gitBranch, timestamp, lastTimestamp, searchText, messageCount };
 }
 
 // 디스크 인덱스 layer — Phase 13. hit 시 readFile 한 번, miss 시 풀 빌드 후 저장.
@@ -445,7 +468,7 @@ async function buildSessionRow(projectDir, project, session) {
       try { meta = await getSessionMetaCached(firstPath, projectDir); } catch { meta = null; }
     }
     if (!meta) {
-      meta = { title: `orphan · ${session.sessionId.slice(0, 8)}`, preview: '', projectName: path.basename(projectDir), projectParent: '', cwd: null, gitBranch: null, timestamp: null, lastTimestamp: null, searchText: '' };
+      meta = { title: `orphan · ${session.sessionId.slice(0, 8)}`, preview: '', projectName: path.basename(projectDir), projectParent: '', cwd: null, gitBranch: null, timestamp: null, lastTimestamp: null, searchText: '', messageCount: 0 };
     }
     if (subagents.length > 1) {
       const searchParts = [meta.searchText || ''];
@@ -475,6 +498,7 @@ async function buildSessionRow(projectDir, project, session) {
     cwd: meta.cwd,
     gitBranch: meta.gitBranch,
     subagentCount: subagents.length,
+    messageCount: meta.messageCount ?? 0,
   };
 }
 

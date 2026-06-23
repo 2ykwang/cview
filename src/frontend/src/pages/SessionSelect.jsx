@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { BotIcon, SearchIcon, FolderIcon } from '../components/Icon';
+import { MessageIcon, SearchIcon, FolderIcon } from '../components/Icon';
 import OpenSessionCommand from '../components/OpenSessionCommand';
 import ThemeToggle from '../components/ThemeToggle';
 import { color, radius, space, fontSize, fontWeight, motion, font } from '../styles/tokens';
@@ -279,10 +279,10 @@ export default function SessionSelect() {
                   )}
                   {s.gitBranch && <span style={styles.branchChip}>{s.gitBranch}</span>}
                   {isOrphan && <span style={styles.orphanChip}>orphan</span>}
-                  {s.subagentCount > 0 && (
-                    <span style={styles.subChip} title={`${s.subagentCount} subagent run${s.subagentCount > 1 ? 's' : ''}`}>
-                      <BotIcon size={10} />
-                      {s.subagentCount}
+                  {s.messageCount > 0 && (
+                    <span style={styles.msgChip} title={`${s.messageCount} message${s.messageCount > 1 ? 's' : ''}`}>
+                      <MessageIcon size={10} />
+                      {s.messageCount}
                     </span>
                   )}
                   {s.matchSnippets?.length > 0 && (
@@ -418,16 +418,15 @@ const styles = {
     borderRadius: radius.pill,
     fontWeight: fontWeight.medium,
   },
-  subChip: {
+  msgChip: {
     display: 'inline-flex',
     alignItems: 'center',
-    gap: 2,
+    gap: 3,
     fontSize: 10,
     lineHeight: 1.4,
-    fontWeight: fontWeight.semibold,
-    color: color.accent,
-    background: color.accentBg,
-    border: `1px solid ${color.accent}`,
+    color: color.textMuted,
+    background: color.bgAlt,
+    border: `1px solid ${color.border}`,
     padding: '0 6px',
     borderRadius: radius.pill,
   },
