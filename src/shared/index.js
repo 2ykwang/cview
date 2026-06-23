@@ -26,7 +26,6 @@ export const STREAM_SKIP_TYPES = new Set([
 // hook_success·task_reminder 같은 노이즈라 숨기고, 사용자에게 의미있는 IDE/계획
 // 컨텍스트만 스트림으로 통과시킨다 (AttachmentCard 가 type 별로 렌더).
 export const ATTACHMENT_WHITELIST = new Set([
-  'diagnostics',
   'opened_file_in_ide',
   'selected_lines_in_ide',
   'edited_text_file',

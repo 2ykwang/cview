@@ -39,11 +39,6 @@ export default function AttachmentCard({ record }) {
     case 'plan_mode_exit':
       label = a.planFilePath ? `plan saved · ${short(a.planFilePath)}` : 'plan mode exited';
       break;
-    case 'diagnostics': {
-      const n = Array.isArray(a.files) ? a.files.length : 0;
-      label = `diagnostics · ${n} file${n === 1 ? '' : 's'}`;
-      break;
-    }
     default:
       label = a.type;
   }
