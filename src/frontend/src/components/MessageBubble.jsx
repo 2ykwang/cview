@@ -1,6 +1,7 @@
 import Avatar from './Avatar';
 import ThinkingBlock from './ThinkingBlock';
 import ToolCard from './ToolCard';
+import ToolResult from './ToolResult';
 import MarkdownRenderer from './MarkdownRenderer';
 import TeammateMessage from './TeammateMessage';
 import UnsupportedMessage from './UnsupportedMessage';
@@ -20,7 +21,12 @@ function AssistantContent({ content, agentContext }) {
       {blocks.map((block, i) => {
         if (block.type === 'thinking') return <ThinkingBlock key={i} thinking={block.thinking} />;
         if (block.type === 'text') return block.text ? <MarkdownRenderer key={i} style={s.md} text={block.text} /> : null;
-        if (block.type === 'tool_use') return <ToolCard key={i} block={block} agentContext={agentContext} />;
+        if (block.type === 'tool_use') return (
+          <div key={i}>
+            <ToolCard block={block} agentContext={agentContext} />
+            <ToolResult result={agentContext?.toolResults?.[block.id]} name={block.name} />
+          </div>
+        );
         if (block.type === 'tool_result') return null;
         return null;
       })}

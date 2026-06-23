@@ -6,7 +6,7 @@ import OpenSessionCommand from '../components/OpenSessionCommand';
 import DateNavigator from '../components/DateNavigator';
 import ThemeToggle from '../components/ThemeToggle';
 import { useExport } from '../hooks/useExport';
-import { processMessages, fmtDate, isSameDay } from '../utils/parseSession';
+import { processMessages, fmtDate, isSameDay, buildToolResults } from '../utils/parseSession';
 import { ArrowLeftIcon, FileIcon, FolderIcon, BotIcon } from '../components/Icon';
 import { color, radius, space, fontSize, fontWeight, motion, font } from '../styles/tokens';
 
@@ -60,6 +60,7 @@ export default function Messenger() {
 
   const [messages, setMessages] = useState([]);
   const [subagents, setSubagents] = useState([]);
+  const [toolResults, setToolResults] = useState({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const bottomRef = useRef(null);
@@ -85,8 +86,11 @@ export default function Messenger() {
 
     const es = new EventSource(url);
     es.onmessage = (e) => {
-      try { setMessages(processMessages(JSON.parse(e.data))); }
-      catch { setError('Invalid stream payload'); }
+      try {
+        const raw = JSON.parse(e.data);
+        setMessages(processMessages(raw));
+        setToolResults(buildToolResults(raw));
+      } catch { setError('Invalid stream payload'); }
       setLoading(false);
     };
     es.onerror = () => {
@@ -131,7 +135,8 @@ export default function Messenger() {
     project,
     masterSessionId: sessionId,
     matchedSubagents,
-  }), [project, sessionId, matchedSubagents]);
+    toolResults,
+  }), [project, sessionId, matchedSubagents, toolResults]);
 
   const cwd = useMemo(() => messages.find(m => m.cwd)?.cwd || null, [messages]);
   const gitBranch = useMemo(() => messages.find(m => m.gitBranch)?.gitBranch || null, [messages]);

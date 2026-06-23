@@ -83,3 +83,20 @@ export function processMessages(records) {
       return true;
     });
 }
+
+// tool_use.id → toolUseResult, built from RAW records (before processMessages,
+// which drops tool_result-only user turns). The result rides on the user record
+// that follows a tool_use; pair them via the tool_result block's tool_use_id.
+export function buildToolResults(records) {
+  const map = {};
+  if (!Array.isArray(records)) return map;
+  for (const r of records) {
+    if (r?.type !== 'user' || r.toolUseResult === undefined) continue;
+    const content = r.message?.content;
+    if (!Array.isArray(content)) continue;
+    for (const b of content) {
+      if (b?.type === 'tool_result' && b.tool_use_id) map[b.tool_use_id] = r.toolUseResult;
+    }
+  }
+  return map;
+}
