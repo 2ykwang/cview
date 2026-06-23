@@ -34,10 +34,42 @@ function renderHighlightedText(text, query) {
   return <>{nodes}</>;
 }
 
-function avatarColor(key) {
-  let hash = 0;
-  for (let i = 0; i < key.length; i++) hash = (hash * 31 + key.charCodeAt(i)) & 0xffff;
-  return AVATAR_TINTS[hash % AVATAR_TINTS.length];
+// Deterministic dot-grid identicon, keyed per project folder. A 5x5 grid
+// mirrored left-right (GitHub-style). The pattern carries the uniqueness, so
+// even when two folders draw the same tint they stay distinguishable — fixing
+// the old "same initial + 1 of 6 colors" collisions.
+function Identicon({ seed, size = 40 }) {
+  let h = 0;
+  for (let i = 0; i < seed.length; i++) h = (h * 31 + seed.charCodeAt(i)) >>> 0;
+  const fg = AVATAR_TINTS[h % AVATAR_TINTS.length];
+  let state = h || 1;
+  const next = () => { state = (state * 1664525 + 1013904223) >>> 0; return state; };
+  const cells = [];
+  for (let y = 0; y < 5; y++) {
+    for (let x = 0; x < 3; x++) {
+      if ((next() & 0xff) > 120) {
+        cells.push([x, y]);
+        if (x < 2) cells.push([4 - x, y]);
+      }
+    }
+  }
+  const cell = size / 5;
+  const pad = cell * 0.14;
+  return (
+    <svg
+      width={size} height={size} viewBox={`0 0 ${size} ${size}`} aria-hidden="true"
+      style={{ borderRadius: '50%', background: color.bgAlt, flexShrink: 0, marginTop: 2 }}
+    >
+      {cells.map(([x, y], i) => (
+        <rect
+          key={i}
+          x={x * cell + pad} y={y * cell + pad}
+          width={cell - pad * 2} height={cell - pad * 2}
+          rx={(cell - pad * 2) * 0.3} fill={fg}
+        />
+      ))}
+    </svg>
+  );
 }
 
 function relativeTime(mtime) {
@@ -214,8 +246,6 @@ export default function SessionSelect() {
         {sessions.map(s => {
           const previewText = (query && s.matchSnippet) ? s.matchSnippet : (s.preview || s.projectDisplay);
           const colorKey = s.projectDisplay || s.id;
-          const bg = avatarColor(colorKey);
-          const initial = (s.projectDisplay || '?')[0].toUpperCase();
           const itemKey = `${s.project}/${s.id}`;
           const isHovered = hovered === itemKey;
           const isOrphan = s.kind === 'orphan';
@@ -231,7 +261,7 @@ export default function SessionSelect() {
               onMouseEnter={() => setHovered(itemKey)}
               onMouseLeave={() => setHovered(null)}
             >
-              <div style={{ ...styles.avatar, background: bg }}>{initial}</div>
+              <Identicon seed={colorKey} size={40} />
               <div style={styles.body}>
                 <div style={styles.row1}>
                   <span style={styles.title}>{renderHighlightedText(s.title, query)}</span>
@@ -341,19 +371,6 @@ const styles = {
     outline: 'none',
   },
   itemHover: { background: color.bgAlt },
-  avatar: {
-    width: 40,
-    height: 40,
-    borderRadius: '50%',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    color: '#ffffff',
-    fontSize: fontSize.md,
-    fontWeight: fontWeight.bold,
-    flexShrink: 0,
-    marginTop: 2,
-  },
   body: { flex: 1, minWidth: 0 },
   row1: { display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 2, gap: space.px4 },
   row2: { marginBottom: 4 },
