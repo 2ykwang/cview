@@ -278,6 +278,7 @@ export default function SessionSelect() {
                     </span>
                   )}
                   {s.gitBranch && <span style={styles.branchChip}>{s.gitBranch}</span>}
+                  {s.version && <span style={styles.versionChip} title={`Created with Claude Code ${s.version}`}>v{s.version}</span>}
                   {isOrphan && <span style={styles.orphanChip}>orphan</span>}
                   {s.messageCount > 0 && (
                     <span style={styles.msgChip} title={`${s.messageCount} message${s.messageCount > 1 ? 's' : ''}`}>
@@ -407,6 +408,17 @@ const styles = {
     overflow: 'hidden',
     textOverflow: 'ellipsis',
     whiteSpace: 'nowrap',
+  },
+  versionChip: {
+    fontSize: 10,
+    lineHeight: 1.4,
+    color: color.textMuted,
+    background: color.bgAlt,
+    border: `1px solid ${color.border}`,
+    padding: '0 6px',
+    borderRadius: radius.xs,
+    fontFamily: font.mono,
+    flexShrink: 0,
   },
   orphanChip: {
     fontSize: 10,

@@ -199,7 +199,7 @@ function pickFirstMeaningfulRecord(headRecords) {
 async function extractSessionMeta(filePath, projectDir, statOverride = null) {
   const stat = statOverride || await fs.stat(filePath);
   if (!stat.size) {
-    return { title: '', preview: '', projectName: 'unknown', projectParent: '', cwd: null, gitBranch: null, timestamp: null, lastTimestamp: null, searchText: '', messageCount: 0 };
+    return { title: '', preview: '', projectName: 'unknown', projectParent: '', cwd: null, gitBranch: null, timestamp: null, lastTimestamp: null, searchText: '', messageCount: 0, version: null };
   }
 
   const content = await fs.readFile(filePath, 'utf-8');
@@ -275,13 +275,21 @@ async function extractSessionMeta(filePath, projectDir, statOverride = null) {
   const searchText = searchParts.join('\n');
 
   let lastTimestamp = null;
+  // Claude Code stamps a `version` (e.g. "2.1.186") on user/assistant/system
+  // records — meta-only records (mode, ai-title, …) omit it. Walk newest-first
+  // so the chip reflects the most recent version the session ran under: the one
+  // that matters for "will this still render".
+  let version = null;
   for (let i = records.length - 1; i >= 0; i--) {
-    if (records[i].timestamp) { lastTimestamp = records[i].timestamp; break; }
+    const r = records[i];
+    if (!lastTimestamp && r.timestamp) lastTimestamp = r.timestamp;
+    if (!version && r.version) version = r.version;
+    if (lastTimestamp && version) break;
   }
 
   const messageCount = countRenderableMessages(records);
 
-  return { title, preview, projectName, projectParent, cwd, gitBranch, timestamp, lastTimestamp, searchText, messageCount };
+  return { title, preview, projectName, projectParent, cwd, gitBranch, timestamp, lastTimestamp, searchText, messageCount, version };
 }
 
 // 디스크 인덱스 layer — Phase 13. hit 시 readFile 한 번, miss 시 풀 빌드 후 저장.
@@ -468,7 +476,7 @@ async function buildSessionRow(projectDir, project, session) {
       try { meta = await getSessionMetaCached(firstPath, projectDir); } catch { meta = null; }
     }
     if (!meta) {
-      meta = { title: `orphan · ${session.sessionId.slice(0, 8)}`, preview: '', projectName: path.basename(projectDir), projectParent: '', cwd: null, gitBranch: null, timestamp: null, lastTimestamp: null, searchText: '', messageCount: 0 };
+      meta = { title: `orphan · ${session.sessionId.slice(0, 8)}`, preview: '', projectName: path.basename(projectDir), projectParent: '', cwd: null, gitBranch: null, timestamp: null, lastTimestamp: null, searchText: '', messageCount: 0, version: null };
     }
     if (subagents.length > 1) {
       const searchParts = [meta.searchText || ''];
@@ -497,6 +505,7 @@ async function buildSessionRow(projectDir, project, session) {
     mtime: new Date(newest).toISOString(),
     cwd: meta.cwd,
     gitBranch: meta.gitBranch,
+    version: meta.version,
     subagentCount: subagents.length,
     messageCount: meta.messageCount ?? 0,
   };

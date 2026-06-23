@@ -36,10 +36,12 @@
 import os from 'os';
 import path from 'path';
 
+// v4: session meta now carries `version` (the Claude Code version stamped on
+//     user/assistant/system records).
 // v3: session meta now carries `messageCount` (renderable bubbles per session).
 // v2: title now prefers the `ai-title` record over the first user prompt.
 // Bumping invalidates all cached indexes so meta gets recomputed.
-export const CURRENT_SCHEMA_VERSION = 3;
+export const CURRENT_SCHEMA_VERSION = 4;
 
 export function defaultCacheDir() {
   const xdg = process.env.XDG_CACHE_HOME;
