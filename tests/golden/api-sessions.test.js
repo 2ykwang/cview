@@ -152,3 +152,31 @@ describe('Golden — projectDisplay 분기', () => {
     expect(y?.projectDisplay).toBe('y/pname');
   });
 });
+
+describe('Golden — 신규 스키마 노출 (version 칩 + 미지원 placeholder)', () => {
+  const SID = '02000000-0009-0009-0009-000000000009';
+
+  test('/api/sessions row 에 Claude Code version 노출', async () => {
+    const res = await request(app).get('/api/sessions?limit=50');
+    const row = res.body.items.find(r => r.id === SID);
+    expect(row).toBeDefined();
+    expect(row.version).toBe('2.1.186');
+  });
+
+  test('stream: 의미있는 미지원(pr-link/worktree-state)은 통과, 노이즈(system)는 제외', async () => {
+    let chunks = '';
+    const res = await request(app)
+      .get(`/api/projects/-fixture-unsupported/sessions/${SID}/stream`)
+      .buffer(false)
+      .parse((r, cb) => {
+        r.on('data', d => { chunks += d.toString('utf8'); if (chunks.includes('\n\n')) r.destroy(); });
+        r.on('close', () => cb(null, chunks));
+      });
+    expect(res.status).toBe(200);
+    const messages = JSON.parse(chunks.replace(/^data: /, '').trim());
+    const types = messages.map(m => m.type);
+    expect(types).toContain('pr-link');
+    expect(types).toContain('worktree-state');
+    expect(types).not.toContain('system');
+  });
+});

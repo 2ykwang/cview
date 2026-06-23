@@ -1,0 +1,5 @@
+{"parentUuid":null,"isSidechain":false,"type":"user","message":{"role":"user","content":"test unsupported types"},"uuid":"unsup-001","timestamp":"2026-02-09T10:00:00Z","cwd":"/tmp/fixture-unsupported","gitBranch":"main","sessionId":"02000000-0009-0009-0009-000000000009","version":"2.1.186"}
+{"parentUuid":"unsup-001","type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"ok"}]},"uuid":"unsup-002","timestamp":"2026-02-09T10:00:01Z","cwd":"/tmp/fixture-unsupported","sessionId":"02000000-0009-0009-0009-000000000009","version":"2.1.186"}
+{"type":"system","subtype":"turn_duration","durationMs":1200,"messageCount":2,"sessionId":"02000000-0009-0009-0009-000000000009","timestamp":"2026-02-09T10:00:02Z","version":"2.1.186"}
+{"type":"pr-link","prNumber":42,"prUrl":"https://github.com/acme/widgets/pull/42","prRepository":"acme/widgets","sessionId":"02000000-0009-0009-0009-000000000009","timestamp":"2026-02-09T10:00:03Z"}
+{"type":"worktree-state","worktreeSession":{"worktreeName":"feat-x","worktreeBranch":"worktree-feat-x","originalBranch":"main"},"sessionId":"02000000-0009-0009-0009-000000000009","timestamp":"2026-02-09T10:00:04Z"}

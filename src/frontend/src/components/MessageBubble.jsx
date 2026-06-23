@@ -3,6 +3,7 @@ import ThinkingBlock from './ThinkingBlock';
 import ToolCard from './ToolCard';
 import MarkdownRenderer from './MarkdownRenderer';
 import TeammateMessage from './TeammateMessage';
+import UnsupportedMessage from './UnsupportedMessage';
 import { fmtTime, fmtModel, hasRenderableAssistantContent } from '../utils/parseSession';
 import { color, radius, space, fontSize, fontWeight } from '../styles/tokens';
 
@@ -114,7 +115,9 @@ export default function MessageBubble({ record, isFirst = true, isLast = true, a
     );
   }
 
-  return null;
+  // Unknown / unsupported record type (pr-link, worktree-state, a future
+  // schema, …). Surface it as a placeholder instead of dropping silently.
+  return <UnsupportedMessage type={type} />;
 }
 
 const s = {

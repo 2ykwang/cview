@@ -16,6 +16,7 @@ import {
   indexFilePath,
   isIndexHit,
 } from './searchIndex.js';
+import { STREAM_SKIP_TYPES } from './shared/index.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -30,7 +31,6 @@ const CLAUDE_DIR = process.env.CVIEW_CLAUDE_DIR
 const PROJECTS_DIR = path.join(CLAUDE_DIR, 'projects');
 const TRANSCRIPTS_DIR = path.join(CLAUDE_DIR, 'transcripts');
 
-const RENDERABLE_TYPES = new Set(['user', 'assistant']);
 // JSONL records that show up at the head/tail of a file but carry no chat content.
 // Used when picking the "first meaningful" record for metadata extraction.
 const META_ONLY_TYPES = new Set([
@@ -544,7 +544,7 @@ function readJsonlMessages(filePath) {
   return content.trim().split('\n')
     .filter(Boolean)
     .map(line => { try { return JSON.parse(line); } catch { return null; } })
-    .filter(m => m && RENDERABLE_TYPES.has(m.type));
+    .filter(m => m && !STREAM_SKIP_TYPES.has(m.type));
 }
 
 // For orphan sessions (no master jsonl). Merges every subagent jsonl in the
@@ -568,7 +568,7 @@ function readOrphanMessages(subagentDirAbs) {
       if (!line) continue;
       try {
         const rec = JSON.parse(line);
-        if (!rec || !RENDERABLE_TYPES.has(rec.type)) continue;
+        if (!rec || STREAM_SKIP_TYPES.has(rec.type)) continue;
         if (agentId && !rec.agentName) rec.agentName = `agent-${agentId.slice(0, 7)}`;
         all.push(rec);
       } catch { /* skip */ }

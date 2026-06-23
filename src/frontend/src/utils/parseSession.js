@@ -1,15 +1,5 @@
 import { tokenize, getDisplayText } from '@shared/messageTokenizer.js';
-
-const SKIP_TYPES = new Set([
-  'progress',
-  'system',
-  'file-history-snapshot',
-  'queue-operation',
-  'last-prompt',
-  'permission-mode',
-  'ai-title',
-  'attachment',
-]);
+import { STREAM_SKIP_TYPES } from '@shared/index.js';
 
 export function fmtTime(ts) {
   if (!ts) return '';
@@ -70,7 +60,7 @@ function userArrayHasText(content) {
 
 export function processMessages(records) {
   return records
-    .filter(r => r && !SKIP_TYPES.has(r.type))
+    .filter(r => r && !STREAM_SKIP_TYPES.has(r.type))
     .map((r) => {
       if (r.type !== 'user') return r;
       const content = r.message?.content;
