@@ -16,7 +16,7 @@ import {
   indexFilePath,
   isIndexHit,
 } from './searchIndex.js';
-import { STREAM_SKIP_TYPES } from './shared/index.js';
+import { STREAM_SKIP_TYPES, ATTACHMENT_WHITELIST } from './shared/index.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -544,7 +544,12 @@ function readJsonlMessages(filePath) {
   return content.trim().split('\n')
     .filter(Boolean)
     .map(line => { try { return JSON.parse(line); } catch { return null; } })
-    .filter(m => m && !STREAM_SKIP_TYPES.has(m.type));
+    .filter(m => {
+      if (!m || STREAM_SKIP_TYPES.has(m.type)) return false;
+      // attachment 는 record.type 이 아니라 attachment.type 으로 화이트리스트 판정.
+      if (m.type === 'attachment') return ATTACHMENT_WHITELIST.has(m.attachment?.type);
+      return true;
+    });
 }
 
 // For orphan sessions (no master jsonl). Merges every subagent jsonl in the
@@ -569,6 +574,7 @@ function readOrphanMessages(subagentDirAbs) {
       try {
         const rec = JSON.parse(line);
         if (!rec || STREAM_SKIP_TYPES.has(rec.type)) continue;
+        if (rec.type === 'attachment' && !ATTACHMENT_WHITELIST.has(rec.attachment?.type)) continue;
         if (agentId && !rec.agentName) rec.agentName = `agent-${agentId.slice(0, 7)}`;
         all.push(rec);
       } catch { /* skip */ }

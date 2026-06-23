@@ -179,4 +179,20 @@ describe('Golden — 신규 스키마 노출 (version 칩 + 미지원 placeholde
     expect(types).toContain('worktree-state');
     expect(types).not.toContain('system');
   });
+
+  test('stream: attachment 화이트리스트(selected_lines_in_ide)는 통과, 노이즈(hook_success)는 제외', async () => {
+    let chunks = '';
+    const res = await request(app)
+      .get(`/api/projects/-fixture-unsupported/sessions/${SID}/stream`)
+      .buffer(false)
+      .parse((r, cb) => {
+        r.on('data', d => { chunks += d.toString('utf8'); if (chunks.includes('\n\n')) r.destroy(); });
+        r.on('close', () => cb(null, chunks));
+      });
+    expect(res.status).toBe(200);
+    const messages = JSON.parse(chunks.replace(/^data: /, '').trim());
+    const atts = messages.filter(m => m.type === 'attachment').map(m => m.attachment?.type);
+    expect(atts).toContain('selected_lines_in_ide');
+    expect(atts).not.toContain('hook_success');
+  });
 });

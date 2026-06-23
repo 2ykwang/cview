@@ -5,6 +5,7 @@ import ToolResult from './ToolResult';
 import MarkdownRenderer from './MarkdownRenderer';
 import TeammateMessage from './TeammateMessage';
 import UnsupportedMessage from './UnsupportedMessage';
+import AttachmentCard from './AttachmentCard';
 import { fmtTime, fmtModel, hasRenderableAssistantContent } from '../utils/parseSession';
 import { color, radius, space, fontSize, fontWeight } from '../styles/tokens';
 
@@ -46,6 +47,8 @@ function UserContent({ content }) {
 export default function MessageBubble({ record, isFirst = true, isLast = true, agentContext }) {
   const { type, message, timestamp, attributionAgent } = record;
   const agentName = record.agentName || 'Claude';
+
+  if (type === 'attachment') return <AttachmentCard record={record} />;
 
   if (type === 'user') {
     const teammateMessages = record._teammateMessages || [];
