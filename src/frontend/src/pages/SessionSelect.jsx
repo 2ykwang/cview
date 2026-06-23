@@ -184,7 +184,8 @@ export default function SessionSelect() {
   const openSession = (s) => {
     const params = new URLSearchParams({ project: s.project, sessionId: s.id });
     // `fromList` lets Messenger's back button do a real history.back().
-    navigate(`/session?${params.toString()}`, { state: { fromList: true } });
+    // `matchQuery` lets Messenger scroll to the first message matching the search.
+    navigate(`/session?${params.toString()}`, { state: { fromList: true, matchQuery: debouncedQuery || null } });
   };
 
   return (

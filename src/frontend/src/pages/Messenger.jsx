@@ -56,6 +56,7 @@ export default function Messenger() {
   const project = searchParams.get('project');
   const sessionId = searchParams.get('sessionId');
   const isTranscript = searchParams.get('transcript') === '1';
+  const matchQuery = location.state?.matchQuery || null;
 
   const [messages, setMessages] = useState([]);
   const [subagents, setSubagents] = useState([]);
@@ -63,6 +64,7 @@ export default function Messenger() {
   const [error, setError] = useState(null);
   const bottomRef = useRef(null);
   const messageListRef = useRef(null);
+  const didJumpRef = useRef(false);
 
   const msgIds = useMemo(() => messages.map((m, i) => m.uuid || `msg-${i}`), [messages]);
   const { captureMode, selected, handleMsgClick, startCapture, cancelCapture, exportHTML, saveCapture } = useExport(messageListRef, msgIds);
@@ -96,8 +98,33 @@ export default function Messenger() {
   }, [sessionId, project, isTranscript]);
 
   useEffect(() => {
-    if (!captureMode) bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages, captureMode]);
+    if (captureMode) return;
+    // When arriving from a search, the match-jump effect owns the initial
+    // scroll position — don't yank the view to the bottom.
+    if (matchQuery) return;
+    bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages, captureMode, matchQuery]);
+
+  // Arriving from a search: scroll to the first message whose rendered text
+  // contains the query and flash it, so the user lands on the match instead
+  // of ctrl+F-ing. Matches inside collapsed content (unexpanded tool output,
+  // subagent transcripts) aren't in the DOM — those just don't jump.
+  useEffect(() => {
+    if (!matchQuery || didJumpRef.current || loading || !messages.length) return;
+    const root = messageListRef.current;
+    if (!root) return;
+    didJumpRef.current = true;
+    const needle = matchQuery.toLowerCase();
+    const target = Array.from(root.querySelectorAll('[data-msg-id]'))
+      .find((el) => el.textContent?.toLowerCase().includes(needle));
+    if (!target) return;
+    requestAnimationFrame(() => {
+      target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      target.style.transition = 'background 0.4s ease';
+      target.style.background = color.accentBg;
+      setTimeout(() => { target.style.background = 'transparent'; }, 1600);
+    });
+  }, [matchQuery, loading, messages]);
 
   const matchedSubagents = useMemo(() => matchSubagents(messages, subagents), [messages, subagents]);
   const agentContext = useMemo(() => ({
