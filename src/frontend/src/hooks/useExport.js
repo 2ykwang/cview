@@ -87,6 +87,7 @@ body {
 .md-wrap pre { background: var(--code-bg); padding: 10px 12px; border-radius: 6px; overflow-x: auto; margin: 6px 0; border: 1px solid var(--border); }
 .md-wrap pre code { background: transparent; padding: 0; color: var(--text); font-size: 12px; }
 .md-wrap pre code.hljs { display: block; padding: 0; }
+.code-copy-btn { display: none; }
 .md-wrap p { margin-bottom: 6px; }
 .md-wrap p:last-child { margin-bottom: 0; }
 .md-wrap ul, .md-wrap ol { padding-left: 20px; margin-bottom: 6px; }
