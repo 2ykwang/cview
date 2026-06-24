@@ -165,6 +165,26 @@ export function useExport(messageListRef, orderedIds = [], records = []) {
   const exportHTML = useCallback(() => {
     if (!messageListRef?.current) return;
     const theme = document.documentElement.dataset.theme === 'dark' ? 'dark' : 'light';
+
+    // Partial export: only the selected messages (capture mode). Clone and
+    // neutralize the selection highlight, same as the image-capture path.
+    // No selection → export the whole conversation.
+    let body;
+    if (selected.size > 0) {
+      const els = Array.from(messageListRef.current.querySelectorAll('[data-msg-id]'))
+        .filter(el => selected.has(el.dataset.msgId));
+      if (els.length === 0) return;
+      body = els.map(el => {
+        const clone = el.cloneNode(true);
+        clone.style.background = 'transparent';
+        clone.style.cursor = '';
+        clone.style.userSelect = '';
+        return clone.outerHTML;
+      }).join('');
+    } else {
+      body = messageListRef.current.innerHTML;
+    }
+
     const html = `<!DOCTYPE html>
 <html lang="en" data-theme="${theme}">
 <head>
@@ -173,7 +193,7 @@ export function useExport(messageListRef, orderedIds = [], records = []) {
 <title>Chat Export</title>
 <style>${EXPORT_CSS}</style>
 </head>
-<body>${messageListRef.current.innerHTML}</body>
+<body>${body}</body>
 </html>`;
     const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
     const url = URL.createObjectURL(blob);
@@ -184,7 +204,7 @@ export function useExport(messageListRef, orderedIds = [], records = []) {
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
-  }, [messageListRef]);
+  }, [messageListRef, selected]);
 
   const saveCapture = useCallback(async (format) => {
     if (selected.size === 0) return;

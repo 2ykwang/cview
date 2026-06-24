@@ -9,6 +9,7 @@ export default function ExportBar({ onExportHTML, onCopyText, textCopied, captur
         {selectedCount > 0 && (
           <>
             <button style={s.saveBtn} onClick={onCopyText} title="Copy selection as text">{textCopied ? 'Copied' : 'Copy'}</button>
+            <button style={s.saveBtn} onClick={onExportHTML} title="Export selection as HTML">HTML</button>
             <button style={s.saveBtn} onClick={onSavePng} title="Save selection as PNG">PNG</button>
             <button style={s.saveBtn} onClick={onSaveJpg} title="Save selection as JPG">JPG</button>
           </>
