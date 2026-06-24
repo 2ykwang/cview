@@ -1,4 +1,4 @@
-import { useRef, useState, useCallback } from 'react';
+import { memo, useRef, useState, useCallback } from 'react';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeHighlight from 'rehype-highlight';
@@ -33,7 +33,7 @@ function CodeBlock({ children, node, ...props }) {
 
 const COMPONENTS = { pre: CodeBlock };
 
-export default function MarkdownRenderer({ text, style, className = 'md-wrap' }) {
+function MarkdownRenderer({ text, style, className = 'md-wrap' }) {
   if (!text) return null;
   return (
     <div style={style} className={className}>
@@ -43,3 +43,7 @@ export default function MarkdownRenderer({ text, style, className = 'md-wrap' })
     </div>
   );
 }
+
+// Memoized so re-parsing (remark + rehype-highlight) only happens when `text`
+// actually changes, not on every parent re-render.
+export default memo(MarkdownRenderer);

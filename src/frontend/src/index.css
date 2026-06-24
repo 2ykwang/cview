@@ -196,6 +196,14 @@ input:focus-visible {
 .code-copy-btn:focus-visible { opacity: 1; }
 .code-copy-btn:hover { color: var(--accent); border-color: var(--accent); }
 
+/* Skip layout/paint for off-screen message rows in long sessions. Keeps the
+   DOM intact (unlike virtualization), so export/capture/search still see every
+   row; only rendering work is deferred until a row nears the viewport. */
+.msg-cv {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 120px;
+}
+
 ::-webkit-scrollbar {
   width: 8px;
   height: 8px;

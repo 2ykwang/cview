@@ -209,7 +209,7 @@ export default function Messenger() {
           const isSelected = captureMode && selected.has(msgId);
 
           return (
-            <div key={msgId}>
+            <div key={msgId} className="msg-cv">
               {showDate && (
                 <div style={s.dateSep}>
                   <div style={s.dateLine} />

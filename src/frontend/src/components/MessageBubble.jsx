@@ -1,3 +1,4 @@
+import { memo } from 'react';
 import Avatar from './Avatar';
 import ThinkingBlock from './ThinkingBlock';
 import ToolCard from './ToolCard';
@@ -44,7 +45,7 @@ function UserContent({ content }) {
   return null;
 }
 
-export default function MessageBubble({ record, isFirst = true, isLast = true, agentContext }) {
+function MessageBubble({ record, isFirst = true, isLast = true, agentContext }) {
   const { type, message, timestamp, attributionAgent } = record;
   const agentName = record.agentName || 'Claude';
 
@@ -174,3 +175,9 @@ const s = {
   userBubbleMeta: { display: 'flex', justifyContent: 'flex-end', marginTop: 3 },
   userBubbleTime: { fontSize: fontSize.xs, color: 'rgba(255, 255, 255, 0.7)' },
 };
+
+// Memoized: Messenger re-renders on capture/selection state, but a bubble's
+// props (record, isFirst, isLast, memoized agentContext) are referentially
+// stable — so memo skips re-rendering, and re-parsing markdown, for every other
+// message on each interaction. The main win for long sessions.
+export default memo(MessageBubble);
