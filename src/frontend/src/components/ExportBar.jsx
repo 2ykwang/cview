@@ -1,13 +1,14 @@
-import { CameraIcon, DownloadIcon } from './Icon';
+import { CameraIcon, DownloadIcon, ClipboardIcon } from './Icon';
 import { color, radius, space, fontSize, fontWeight, motion } from '../styles/tokens';
 
-export default function ExportBar({ onExportHTML, captureMode, onStartCapture, onCancelCapture, selectedCount, onSavePng, onSaveJpg }) {
+export default function ExportBar({ onExportHTML, onCopyText, textCopied, captureMode, onStartCapture, onCancelCapture, selectedCount, onSavePng, onSaveJpg }) {
   if (captureMode) {
     return (
       <div style={s.bar}>
         <span style={s.hint}>{selectedCount} selected</span>
         {selectedCount > 0 && (
           <>
+            <button style={s.saveBtn} onClick={onCopyText} title="Copy selection as text">{textCopied ? 'Copied' : 'Copy'}</button>
             <button style={s.saveBtn} onClick={onSavePng} title="Save selection as PNG">PNG</button>
             <button style={s.saveBtn} onClick={onSaveJpg} title="Save selection as JPG">JPG</button>
           </>
@@ -19,6 +20,13 @@ export default function ExportBar({ onExportHTML, captureMode, onStartCapture, o
 
   return (
     <div style={s.bar}>
+      <button
+        style={{ ...s.iconBtn, ...(textCopied ? s.iconBtnActive : {}) }}
+        onClick={onCopyText}
+        title={textCopied ? 'Copied!' : 'Copy all as text'}
+      >
+        <ClipboardIcon size={14} />
+      </button>
       <button style={s.iconBtn} onClick={onExportHTML} title="Export as HTML">
         <DownloadIcon size={14} />
       </button>
@@ -44,6 +52,11 @@ const s = {
     cursor: 'pointer',
     padding: 0,
     transition: `color ${motion.fast}, border-color ${motion.fast}, background ${motion.fast}`,
+  },
+  iconBtnActive: {
+    color: color.accent,
+    borderColor: color.accent,
+    background: color.accentBg,
   },
   saveBtn: {
     padding: '5px 10px',

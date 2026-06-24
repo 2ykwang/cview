@@ -68,7 +68,7 @@ export default function Messenger() {
   const didJumpRef = useRef(false);
 
   const msgIds = useMemo(() => messages.map((m, i) => m.uuid || `msg-${i}`), [messages]);
-  const { captureMode, selected, handleMsgClick, startCapture, cancelCapture, exportHTML, saveCapture } = useExport(messageListRef, msgIds);
+  const { captureMode, selected, handleMsgClick, startCapture, cancelCapture, exportHTML, saveCapture, copyText, textCopied } = useExport(messageListRef, msgIds, messages);
 
   useEffect(() => {
     if (!sessionId || isTranscript || !project) { setSubagents([]); return; }
@@ -174,6 +174,8 @@ export default function Messenger() {
           {!isTranscript && <OpenSessionCommand cwd={cwd} sessionId={sessionId} />}
           <ExportBar
             onExportHTML={exportHTML}
+            onCopyText={copyText}
+            textCopied={textCopied}
             captureMode={captureMode}
             onStartCapture={startCapture}
             onCancelCapture={cancelCapture}

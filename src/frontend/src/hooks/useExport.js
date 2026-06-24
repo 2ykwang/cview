@@ -1,4 +1,5 @@
 import { useState, useCallback } from 'react';
+import { serializeMessages } from '../utils/serializeMessages.js';
 
 // Keep in sync with index.css. Inline styles in the captured DOM reference
 // CSS variables (var(--…)), so the export must define both themes at :root
@@ -119,10 +120,11 @@ body {
 }
 `;
 
-export function useExport(messageListRef, orderedIds = []) {
+export function useExport(messageListRef, orderedIds = [], records = []) {
   const [captureMode, setCaptureMode] = useState(false);
   const [selected, setSelected] = useState(new Set());
   const [anchorIdx, setAnchorIdx] = useState(null);
+  const [textCopied, setTextCopied] = useState(false);
 
   const handleMsgClick = useCallback((id, event) => {
     const idx = orderedIds.indexOf(id);
@@ -225,5 +227,19 @@ export function useExport(messageListRef, orderedIds = []) {
     }
   }, [selected]);
 
-  return { captureMode, selected, handleMsgClick, startCapture, cancelCapture, exportHTML, saveCapture };
+  // Copy the conversation as markdown: the selection if any messages are
+  // picked (capture mode), otherwise the whole transcript.
+  const copyText = useCallback(async () => {
+    const md = serializeMessages(records, selected.size ? selected : null);
+    if (!md) return;
+    try {
+      await navigator.clipboard.writeText(md);
+    } catch {
+      return;
+    }
+    setTextCopied(true);
+    setTimeout(() => setTextCopied(false), 1400);
+  }, [records, selected]);
+
+  return { captureMode, selected, handleMsgClick, startCapture, cancelCapture, exportHTML, saveCapture, copyText, textCopied };
 }
