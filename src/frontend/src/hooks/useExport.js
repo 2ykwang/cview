@@ -89,6 +89,8 @@ body {
 .md-wrap pre code { background: transparent; padding: 0; color: var(--text); font-size: 12px; }
 .md-wrap pre code.hljs { display: block; padding: 0; }
 .code-copy-btn { display: none; }
+.export-footer { margin: 28px auto 4px; padding-top: 14px; border-top: 1px solid var(--border); max-width: 760px; text-align: center; font-size: 12px; color: var(--text-muted); }
+.export-footer a { color: var(--accent); text-decoration: none; }
 .md-wrap p { margin-bottom: 6px; }
 .md-wrap p:last-child { margin-bottom: 0; }
 .md-wrap ul, .md-wrap ol { padding-left: 20px; margin-bottom: 6px; }
@@ -204,7 +206,7 @@ export function useExport(messageListRef, orderedIds = [], records = []) {
 <title>Chat Export</title>
 <style>${EXPORT_CSS}</style>
 </head>
-<body>${body}</body>
+<body>${body}<footer class="export-footer">Exported from <a href="https://github.com/2ykwang/cview">cview</a> · Claude Code session viewer</footer></body>
 </html>`;
     downloadBlob(new Blob([html], { type: 'text/html;charset=utf-8' }), `chat-${Date.now()}.html`);
   }, [messageListRef, selected]);

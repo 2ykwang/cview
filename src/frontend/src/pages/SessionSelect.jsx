@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { MessageIcon, SearchIcon, FolderIcon } from '../components/Icon';
+import { MessageIcon, SearchIcon, FolderIcon, GithubIcon } from '../components/Icon';
 import OpenSessionCommand from '../components/OpenSessionCommand';
 import ThemeToggle from '../components/ThemeToggle';
 import { color, radius, space, fontSize, fontWeight, motion, font } from '../styles/tokens';
@@ -316,12 +316,29 @@ export default function SessionSelect() {
         {!loading && hasMore && <div ref={sentinelRef} style={styles.sentinel} />}
         {loadingMore && <div style={styles.hint}>Loading more...</div>}
       </div>
+      <a href="https://github.com/2ykwang/cview" target="_blank" rel="noreferrer" style={styles.footer}>
+        <GithubIcon size={12} />
+        <span>cview · GitHub</span>
+      </a>
     </div>
   );
 }
 
 const styles = {
   container: { display: 'flex', flexDirection: 'column', height: '100vh', background: color.bg, color: color.text },
+  footer: {
+    flexShrink: 0,
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 5,
+    padding: '7px 16px',
+    borderTop: `1px solid ${color.border}`,
+    background: color.surface,
+    color: color.textMuted,
+    fontSize: fontSize.xs,
+    textDecoration: 'none',
+  },
   header: {
     padding: '14px 20px',
     borderBottom: `1px solid ${color.border}`,
