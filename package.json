@@ -1,6 +1,6 @@
 {
   "name": "claude-chatview",
-  "version": "1.4.1",
+  "version": "1.5.0",
   "description": "CLI tool to visualize Claude Agent conversations as a chat UI",
   "type": "module",
   "bin": {
