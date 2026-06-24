@@ -120,6 +120,17 @@ body {
 }
 `;
 
+function downloadBlob(blob, filename) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
 export function useExport(messageListRef, orderedIds = [], records = []) {
   const [captureMode, setCaptureMode] = useState(false);
   const [selected, setSelected] = useState(new Set());
@@ -195,15 +206,7 @@ export function useExport(messageListRef, orderedIds = [], records = []) {
 </head>
 <body>${body}</body>
 </html>`;
-    const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `chat-${Date.now()}.html`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
+    downloadBlob(new Blob([html], { type: 'text/html;charset=utf-8' }), `chat-${Date.now()}.html`);
   }, [messageListRef, selected]);
 
   const saveCapture = useCallback(async (format) => {
@@ -261,5 +264,18 @@ export function useExport(messageListRef, orderedIds = [], records = []) {
     setTimeout(() => setTextCopied(false), 1400);
   }, [records, selected]);
 
-  return { captureMode, selected, handleMsgClick, startCapture, cancelCapture, exportHTML, saveCapture, copyText, textCopied };
+  // Download the selection as a Markdown file.
+  const saveMarkdown = useCallback(() => {
+    const md = serializeMessages(records, selected.size ? selected : null);
+    if (!md) return;
+    downloadBlob(new Blob([md], { type: 'text/markdown;charset=utf-8' }), `chat-${Date.now()}.md`);
+  }, [records, selected]);
+
+  const selectAll = useCallback(() => setSelected(new Set(orderedIds)), [orderedIds]);
+  const resetSelection = useCallback(() => { setSelected(new Set()); setAnchorIdx(null); }, []);
+
+  return {
+    captureMode, selected, handleMsgClick, startCapture, cancelCapture,
+    exportHTML, saveCapture, copyText, textCopied, saveMarkdown, selectAll, resetSelection,
+  };
 }

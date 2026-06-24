@@ -68,7 +68,7 @@ export default function Messenger() {
   const didJumpRef = useRef(false);
 
   const msgIds = useMemo(() => messages.map((m, i) => m.uuid || `msg-${i}`), [messages]);
-  const { captureMode, selected, handleMsgClick, startCapture, cancelCapture, exportHTML, saveCapture, copyText, textCopied } = useExport(messageListRef, msgIds, messages);
+  const { captureMode, selected, handleMsgClick, startCapture, cancelCapture, exportHTML, saveCapture, copyText, textCopied, saveMarkdown, selectAll, resetSelection } = useExport(messageListRef, msgIds, messages);
 
   useEffect(() => {
     if (!sessionId || isTranscript || !project) { setSubagents([]); return; }
@@ -173,13 +173,16 @@ export default function Messenger() {
         <div style={s.toolbar} role="toolbar" aria-label="Session actions">
           {!isTranscript && <OpenSessionCommand cwd={cwd} sessionId={sessionId} />}
           <ExportBar
-            onExportHTML={exportHTML}
+            captureMode={captureMode}
+            onEnter={startCapture}
+            onCancel={cancelCapture}
+            selectedCount={selected.size}
+            onSelectAll={selectAll}
+            onReset={resetSelection}
             onCopyText={copyText}
             textCopied={textCopied}
-            captureMode={captureMode}
-            onStartCapture={startCapture}
-            onCancelCapture={cancelCapture}
-            selectedCount={selected.size}
+            onSaveMarkdown={saveMarkdown}
+            onExportHTML={exportHTML}
             onSavePng={() => saveCapture('png')}
             onSaveJpg={() => saveCapture('jpg')}
           />
@@ -189,7 +192,7 @@ export default function Messenger() {
 
       {captureMode && (
         <div style={s.captureBanner}>
-          Click to select · Shift+click to select range · Save as PNG or JPG
+          Click to select · Shift+click for a range · or use All · then pick a format
         </div>
       )}
 
